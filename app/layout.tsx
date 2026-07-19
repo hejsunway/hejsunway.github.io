@@ -3,7 +3,10 @@ import "@fontsource/comfortaa/600.css";
 import "@fontsource/comfortaa/700.css";
 import "./globals.css";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://aidofor.me";
+// Treat empty strings from misconfigured env as missing so the
+// fallback URL is always a valid absolute URL during build.
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://aidofor.me";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
