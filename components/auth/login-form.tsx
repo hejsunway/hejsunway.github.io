@@ -5,7 +5,7 @@ import { useActionState } from "react";
 import Link from "next/link";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { PasswordInput } from "@/components/auth/password-input";
-import { OAuthButtons } from "@/components/auth/oauth-buttons";
+// import { OAuthButtons } from "@/components/auth/oauth-buttons";
 import { loginAction, type LoginState } from "@/lib/auth/actions";
 
 type LoginFormProps = {
@@ -36,7 +36,12 @@ export function LoginForm({ nextPath, initialError, showResetConfirmation }: Log
         </div>
       ) : null}
 
-      <OAuthButtons nextPath={nextPath} />
+      {/* Google sign-in temporarily hidden — the Supabase-hosted OAuth
+          client shows the Supabase project URL on the consent screen.
+          Re-enable once a custom Google OAuth client is registered with
+          AidoForMe branding that supersedes the Supabase-managed one.
+          See components/auth/oauth-buttons.tsx for the existing impl. */}
+      {/* <OAuthButtons nextPath={nextPath} /> */}
 
       <label className="auth-field">
         <span>Email address</span>
