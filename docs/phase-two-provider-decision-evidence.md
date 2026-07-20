@@ -558,6 +558,12 @@ must be reviewed and version-bound to v13 before any paid evaluation. V13 is
 offline contract evidence only; it is not provider quality approval and does
 not authorize an automatic retry or fallback.
 
+The evaluator now fails closed unless the private checklist also contains an
+explicit `provider_request_approval` section for the exact staging project,
+model, prompt version, schema version, anchoring version, and reviewed document
+hashes. A matching checklist file by itself is no longer enough to permit a
+provider request; the reviewer must mark that exact scope approved first.
+
 At Luna's ordinary hard-limit prices, 40,000 input plus 4,000 output tokens
 costs USD 0.064, just under the current USD 0.0648 route ceiling. GPT-5.6 cache
 writes can raise that exposure to USD 0.074. The Phase 2 billing schema does

@@ -63,6 +63,22 @@ async function loadEnvironment() {
   }
 }
 
+function checklistHasProviderRequestApproval(checklist, projectId) {
+  const approval = checklist.provider_request_approval;
+  const scope = approval?.scope;
+  return approval?.approved_for_provider_request === true
+    && typeof approval?.reviewer === "string"
+    && approval.reviewer.trim().length >= 2
+    && Number.isFinite(Date.parse(approval?.reviewed_at ?? ""))
+    && scope?.target_environment === "staging"
+    && scope?.staging_project_ref === STAGING_PROJECT_REF
+    && scope?.project_id === projectId
+    && scope?.model_requested === MODEL
+    && scope?.prompt_version === PROMPT_VERSION
+    && scope?.schema_version === SCHEMA_VERSION
+    && scope?.anchoring_version === ANCHORING_VERSION;
+}
+
 async function loadReviewChecklist(checklistPath, project, documents, repositoryRoot) {
   if (!checklistPath) return null;
   const resolvedPath = resolve(checklistPath);
@@ -87,13 +103,24 @@ async function loadReviewChecklist(checklistPath, project, documents, repository
     || checklist.project_id !== project.id
     || checklist.prompt_version !== PROMPT_VERSION
     || checklist.schema_version !== SCHEMA_VERSION
+    || checklist.model_requested !== MODEL
+    || checklist.anchoring_version !== ANCHORING_VERSION
     || expectedHashes.size !== checklistHashes.size
     || [...expectedHashes].some(([kind, hash]) => checklistHashes.get(kind) !== hash)
   ) throw new Error("The human reference checklist does not match this staging evaluation.");
+  if (!checklistHasProviderRequestApproval(checklist, project.id)) {
+    throw new Error(
+      "The human reference checklist must be explicitly reviewed and approved for this exact provider request.",
+    );
+  }
+  const approvalScope = checklist.provider_request_approval.scope;
   return {
     path: resolvedPath,
     version: checklist.checklist_version,
     sha256: createHash("sha256").update(bytes).digest("hex"),
+    approved_for_provider_request: true,
+    reviewed_at: checklist.provider_request_approval.reviewed_at,
+    approval_scope: approvalScope,
   };
 }
 
@@ -1714,6 +1741,30 @@ function runEvaluatorContractSelfTest() {
     original_filename: "contract.pdf",
     page_text: ["Contract table row"],
   };
+  const approvalChecklist = {
+    provider_request_approval: {
+      approved_for_provider_request: true,
+      reviewer: "Phase 2 reviewer",
+      reviewed_at: "2026-07-20T00:00:00.000Z",
+      scope: {
+        target_environment: "staging",
+        staging_project_ref: STAGING_PROJECT_REF,
+        project_id: document.id,
+        model_requested: MODEL,
+        prompt_version: PROMPT_VERSION,
+        schema_version: SCHEMA_VERSION,
+        anchoring_version: ANCHORING_VERSION,
+      },
+    },
+  };
+  if (!checklistHasProviderRequestApproval(approvalChecklist, document.id)) {
+    throw new Error("The provider-request approval checklist self-test failed.");
+  }
+  const unapprovedChecklist = structuredClone(approvalChecklist);
+  unapprovedChecklist.provider_request_approval.scope.prompt_version = "previous-prompt";
+  if (checklistHasProviderRequestApproval(unapprovedChecklist, document.id)) {
+    throw new Error("The provider-request approval mismatch self-test failed.");
+  }
   const blocks = [
     {
       id: "rubric-p1-b001",

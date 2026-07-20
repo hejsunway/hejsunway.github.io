@@ -146,6 +146,10 @@ The concurrency test makes two simultaneous identical reservations and proves on
   Regression tests reject merged or omitted clauses and any guessed completion.
   The v13 isolated-staging dry run passes with no provider request; v13 is not
   yet provider quality evidence and its checklist still needs versioned review.
+  The evaluator now also requires an explicit private
+  `provider_request_approval` block bound to the exact staging project, model,
+  prompt, schema, anchoring version, and document hashes before any paid
+  provider request can run.
   Because the quality gate failed and
   the billing schema cannot yet price cache-write tokens separately, both
   routes and all controls remain disabled and unapplied.
