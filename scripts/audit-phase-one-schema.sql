@@ -7,12 +7,12 @@
 -- to report `pass = true` before treating that environment as Phase 1-ready.
 
 WITH
-expected_migrations(version) AS (
+expected_migrations(version, migration_name) AS (
   VALUES
-    ('20260719000000'),
-    ('20260719123037'),
-    ('20260719141159'),
-    ('20260719142000')
+    ('20260719000000', 'aido_product_memberships'),
+    ('20260719123037', 'aido_phase_one_projects'),
+    ('20260719141159', 'aido_phase_one_completion'),
+    ('20260719142000', 'aido_phase_one_privilege_hardening')
 ),
 expected_tables(table_name) AS (
   VALUES
@@ -133,14 +133,18 @@ checks(check_order, check_name, expected, actual, pass) AS (
   SELECT
     10,
     'Phase 1 migration history',
-    'all four reviewed versions recorded',
+    'all four reviewed versions or canonical names recorded',
     coalesce((
-      SELECT jsonb_agg(version ORDER BY version)::text
+      SELECT jsonb_agg(
+        jsonb_build_object('version', version, 'name', migration_name)
+        ORDER BY version
+      )::text
       FROM expected_migrations expected
       WHERE NOT EXISTS (
         SELECT 1
         FROM supabase_migrations.schema_migrations applied
         WHERE applied.version = expected.version
+           OR applied.name = expected.migration_name
       )
     ), '[]'),
     NOT EXISTS (
@@ -150,6 +154,7 @@ checks(check_order, check_name, expected, actual, pass) AS (
         SELECT 1
         FROM supabase_migrations.schema_migrations applied
         WHERE applied.version = expected.version
+           OR applied.name = expected.migration_name
       )
     )
   UNION ALL

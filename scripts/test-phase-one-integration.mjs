@@ -6,8 +6,8 @@ const anonKey = process.env.ANON_KEY;
 const serviceRoleKey = process.env.SERVICE_ROLE_KEY;
 const integrationTarget = process.env.AIDO_INTEGRATION_TARGET ?? "local";
 
-if (!apiUrl || !anonKey || !serviceRoleKey) {
-  throw new Error("Supabase API_URL, ANON_KEY, and SERVICE_ROLE_KEY are required.");
+if (!apiUrl || !anonKey) {
+  throw new Error("Supabase API_URL and ANON_KEY are required.");
 }
 
 const parsedApiUrl = new URL(apiUrl);
@@ -34,21 +34,46 @@ if (integrationTarget === "local") {
   throw new Error("AIDO_INTEGRATION_TARGET must be local or staging.");
 }
 
+const useStagingPreprovisionedUsers = integrationTarget === "staging"
+  && process.env.AIDO_STAGING_PREPROVISIONED_USERS === "1";
+if (!serviceRoleKey && !useStagingPreprovisionedUsers) {
+  throw new Error(
+    "SERVICE_ROLE_KEY is required unless guarded staging self-sign-up is explicitly enabled.",
+  );
+}
+
 const clientOptions = { auth: { autoRefreshToken: false, persistSession: false } };
-const admin = createClient(apiUrl, serviceRoleKey, clientOptions);
+const admin = serviceRoleKey ? createClient(apiUrl, serviceRoleKey, clientOptions) : null;
 const owner = createClient(apiUrl, anonKey, clientOptions);
 const unrelated = createClient(apiUrl, anonKey, clientOptions);
 const suffix = randomUUID();
-const ownerEmail = `phase1-owner-${suffix}@example.test`;
-const unrelatedEmail = `phase1-other-${suffix}@example.test`;
-const password = `Aido-${randomUUID()}-9a`;
+const testEmailDomain = integrationTarget === "staging" ? "aidofor.me" : "example.test";
+const ownerEmail = process.env.AIDO_TEST_OWNER_EMAIL
+  ?? `phase1-owner-${suffix}@${testEmailDomain}`;
+const unrelatedEmail = process.env.AIDO_TEST_UNRELATED_EMAIL
+  ?? `phase1-other-${suffix}@${testEmailDomain}`;
+const password = process.env.AIDO_TEST_PASSWORD ?? `Aido-${randomUUID()}-9a`;
+const preprovisionedOwnerId = process.env.AIDO_TEST_OWNER_ID;
+const preprovisionedUnrelatedId = process.env.AIDO_TEST_UNRELATED_ID;
 const bucket = "aido-assignment-files";
+
+if (
+  useStagingPreprovisionedUsers
+  && (!preprovisionedOwnerId || !preprovisionedUnrelatedId || !process.env.AIDO_TEST_PASSWORD)
+) {
+  throw new Error("Preprovisioned staging users require both IDs and the temporary password.");
+}
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-async function createUser(email) {
+async function createUser(client, email) {
+  if (useStagingPreprovisionedUsers) {
+    const id = email === ownerEmail ? preprovisionedOwnerId : preprovisionedUnrelatedId;
+    return { id, email };
+  }
+
   const { data, error } = await admin.auth.admin.createUser({
     email,
     password,
@@ -58,23 +83,46 @@ async function createUser(email) {
   return data.user;
 }
 
+async function signInUser(client, email) {
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+}
+
 let ownerUser;
 let unrelatedUser;
 let projectId;
 const uploadedPaths = [];
 
 try {
-  ownerUser = await createUser(ownerEmail);
-  unrelatedUser = await createUser(unrelatedEmail);
+  ownerUser = await createUser(owner, ownerEmail);
+  unrelatedUser = await createUser(unrelated, unrelatedEmail);
 
-  const { error: membershipError } = await admin.from("aido_product_memberships").insert([
-    { user_id: ownerUser.id, status: "active", role: "student" },
-    { user_id: unrelatedUser.id, status: "active", role: "student" },
-  ]);
-  if (membershipError) throw membershipError;
+  await signInUser(owner, ownerEmail);
+  await signInUser(unrelated, unrelatedEmail);
 
-  const { error: ownerSignInError } = await owner.auth.signInWithPassword({ email: ownerEmail, password });
-  if (ownerSignInError) throw ownerSignInError;
+  if (admin) {
+    const { error: membershipError } = await admin.from("aido_product_memberships").insert([
+      { user_id: ownerUser.id, status: "active", role: "student" },
+      { user_id: unrelatedUser.id, status: "active", role: "student" },
+    ]);
+    if (membershipError) throw membershipError;
+  } else {
+    const [{ error: ownerMembershipError }, { error: unrelatedMembershipError }] = await Promise.all([
+      owner.from("aido_product_memberships").insert({
+        user_id: ownerUser.id,
+        status: "active",
+        role: "student",
+      }),
+      unrelated.from("aido_product_memberships").insert({
+        user_id: unrelatedUser.id,
+        status: "active",
+        role: "student",
+      }),
+    ]);
+    if (ownerMembershipError || unrelatedMembershipError) {
+      throw ownerMembershipError ?? unrelatedMembershipError;
+    }
+  }
 
   const { data: createdProjectId, error: createError } = await owner.rpc("aido_create_project", {
     p_title: `Integration ${suffix}`,
@@ -152,11 +200,6 @@ try {
   if (documentError) throw documentError;
   assert(documents.length === 1 && documents[0].storage_path === storagePath, "Persisted document metadata is incorrect.");
 
-  const { error: unrelatedSignInError } = await unrelated.auth.signInWithPassword({
-    email: unrelatedEmail,
-    password,
-  });
-  if (unrelatedSignInError) throw unrelatedSignInError;
   const { data: leakedProjects, error: unrelatedReadError } = await unrelated
     .from("aido_writing_projects")
     .select("id")
@@ -171,28 +214,43 @@ try {
   const { error: deleteError } = await owner.rpc("aido_delete_project", { p_project_id: projectId });
   if (deleteError) throw deleteError;
 
+  const verificationClient = admin ?? owner;
   const [{ data: deletedRows, error: deletedRowsError }, { data: auditRows, error: auditError }] = await Promise.all([
-    admin.from("aido_writing_projects").select("id").eq("id", projectId),
-    admin.from("aido_project_deletion_audit").select("deleted_project_id").eq("deleted_project_id", projectId),
+    verificationClient.from("aido_writing_projects").select("id").eq("id", projectId),
+    verificationClient.from("aido_project_deletion_audit").select("deleted_project_id").eq("deleted_project_id", projectId),
   ]);
   if (deletedRowsError || auditError) throw deletedRowsError ?? auditError;
   assert(deletedRows.length === 0, "Deleted project row still exists.");
   assert(auditRows.length === 1, "Project deletion did not create exactly one persistent audit row.");
 
-  const { data: remainingObjects, error: remainingObjectsError } = await admin.storage
+  const { data: remainingObjects, error: remainingObjectsError } = await verificationClient.storage
     .from(bucket)
     .list(`${ownerUser.id}/${projectId}`, { limit: 100 });
   if (remainingObjectsError) throw remainingObjectsError;
   assert(remainingObjects.length === 0, "Deleted project still has stored objects.");
 
-  console.log("Phase 1 local integration flow passed.");
+  console.log(`Phase 1 ${integrationTarget} integration flow passed.`);
 } finally {
   if (projectId && ownerUser) {
     if (uploadedPaths.length) {
-      await admin.storage.from(bucket).remove(uploadedPaths).catch(() => undefined);
+      await (admin ?? owner).storage.from(bucket).remove(uploadedPaths).catch(() => undefined);
     }
-    await admin.from("aido_writing_projects").delete().eq("id", projectId);
+    await (admin ?? owner).from("aido_writing_projects").delete().eq("id", projectId);
   }
-  if (ownerUser) await admin.auth.admin.deleteUser(ownerUser.id);
-  if (unrelatedUser) await admin.auth.admin.deleteUser(unrelatedUser.id);
+  if (admin) {
+    if (ownerUser) await admin.auth.admin.deleteUser(ownerUser.id);
+    if (unrelatedUser) await admin.auth.admin.deleteUser(unrelatedUser.id);
+  } else {
+    if (ownerUser) {
+      await owner.from("aido_product_memberships").delete().eq("user_id", ownerUser.id);
+    }
+    if (unrelatedUser) {
+      await unrelated.from("aido_product_memberships").delete().eq("user_id", unrelatedUser.id);
+    }
+    if (ownerUser || unrelatedUser) {
+      console.log(
+        `AIDO_STAGING_CLEANUP_USER_IDS=${[ownerUser?.id, unrelatedUser?.id].filter(Boolean).join(",")}`,
+      );
+    }
+  }
 }

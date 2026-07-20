@@ -3,7 +3,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET search_path = public, extensions;
 
-SELECT plan(71);
+SELECT plan(80);
 
 -- Structural and privilege boundary.
 SELECT has_table('public', 'aido_credit_wallets', 'credit wallets exist');
@@ -59,6 +59,22 @@ SELECT ok(
     'EXECUTE'
   ),
   'service role can execute the trusted reservation wrapper'
+);
+SELECT ok(
+  NOT has_function_privilege(
+    'authenticated',
+    'public.aido_mark_provider_call_dispatched(uuid)',
+    'EXECUTE'
+  ),
+  'authenticated users cannot mark a provider call as dispatched'
+);
+SELECT ok(
+  has_function_privilege(
+    'service_role',
+    'public.aido_mark_provider_call_dispatched(uuid)',
+    'EXECUTE'
+  ),
+  'service role can cross the provider dispatch boundary'
 );
 
 INSERT INTO auth.users (id, email, is_sso_user, is_anonymous)
@@ -284,6 +300,30 @@ SELECT throws_ok(
   '23505', NULL,
   'provider authorization key cannot be reused with changed ceilings'
 );
+SELECT throws_ok(
+  $$SELECT public.aido_record_usage_event(
+    (SELECT id FROM public.aido_provider_call_authorizations WHERE idempotency_key = 'phase2-provider-success'),
+    'phase2-usage-success', 'req_phase2success', 'phase2-prompt-v1',
+    400, 0, 250, 0, 0, 0, 1200, 500,
+    'succeeded', true, NULL
+  )$$,
+  '23514', NULL,
+  'usage cannot consume an authorization before provider dispatch'
+);
+SELECT is(
+  public.aido_mark_provider_call_dispatched(
+    (SELECT id FROM public.aido_provider_call_authorizations WHERE idempotency_key = 'phase2-provider-success')
+  ),
+  true,
+  'the first worker atomically claims provider dispatch'
+);
+SELECT is(
+  public.aido_mark_provider_call_dispatched(
+    (SELECT id FROM public.aido_provider_call_authorizations WHERE idempotency_key = 'phase2-provider-success')
+  ),
+  false,
+  'a retry cannot dispatch the same authorized call twice'
+);
 SELECT lives_ok(
   $$SELECT public.aido_record_usage_event(
     (SELECT id FROM public.aido_provider_call_authorizations WHERE idempotency_key = 'phase2-provider-success'),
@@ -388,6 +428,13 @@ SELECT lives_ok(
   )$$,
   'failure-path provider call receives an in-budget authorization'
 );
+SELECT is(
+  public.aido_mark_provider_call_dispatched(
+    (SELECT id FROM public.aido_provider_call_authorizations WHERE idempotency_key = 'phase2-provider-failure')
+  ),
+  true,
+  'failed provider work is also marked as dispatched before usage is recorded'
+);
 SELECT lives_ok(
   $$SELECT public.aido_record_usage_event(
     (SELECT id FROM public.aido_provider_call_authorizations WHERE idempotency_key = 'phase2-provider-failure'),
@@ -490,6 +537,37 @@ SELECT is(
   'wallets, ledgers, reservations, usage, and payment effects reconcile'
 );
 
+INSERT INTO public.aido_provider_call_authorizations (
+  reservation_id, user_id, idempotency_key, attempt,
+  estimated_cost_microusd, estimated_input_tokens, estimated_output_tokens,
+  expires_at, created_at, dispatched_at
+)
+SELECT
+  reservation.id, reservation.user_id, 'phase2-provider-ambiguous', 1,
+  100, 10, 10,
+  now() - interval '1 minute', now() - interval '2 minutes', now() - interval '90 seconds'
+FROM public.aido_usage_reservations reservation
+WHERE reservation.job_key = 'phase2-job-success';
+
+SELECT is(
+  (SELECT count(*) FROM public.aido_provider_dispatch_reconciliation_issues()),
+  1::bigint,
+  'an expired dispatched call without usage is surfaced for reconciliation'
+);
+SELECT is(
+  (SELECT details ->> 'provider' FROM public.aido_provider_dispatch_reconciliation_issues()),
+  'openai',
+  'the unresolved dispatch issue identifies the provider to reconcile'
+);
+UPDATE public.aido_provider_call_authorizations
+SET status = 'released', released_at = now()
+WHERE idempotency_key = 'phase2-provider-ambiguous';
+SELECT is(
+  (SELECT count(*) FROM public.aido_provider_dispatch_reconciliation_issues()),
+  1::bigint,
+  'releasing student credits does not erase an ambiguous provider expense'
+);
+
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config(
@@ -546,7 +624,9 @@ SELECT is(
 RESET ROLE;
 SET LOCAL ROLE service_role;
 SELECT throws_ok(
-  $$UPDATE public.aido_credit_ledger SET metadata = '{"tampered":true}'::jsonb WHERE id = 1$$,
+  $$UPDATE public.aido_credit_ledger
+    SET metadata = '{"tampered":true}'::jsonb
+    WHERE id = (SELECT min(id) FROM public.aido_credit_ledger)$$,
   '55000', NULL,
   'ledger history is append-only even for trusted service code'
 );

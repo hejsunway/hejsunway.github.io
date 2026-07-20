@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.aidofor.me/schemas/billing-configuration.schema.json",
+  "title": "AidoForMe reviewed billing configuration",
+  "description": "Operator-supplied real configuration. This schema intentionally defines no defaults or examples.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "configuration_label",
+    "target_environment",
+    "billing_config",
+    "provider_prices",
+    "feature_rate_cards",
+    "provider_routes",
+    "credit_products",
+    "system_controls"
+  ],
+  "properties": {
+    "configuration_label": { "type": "string", "minLength": 3, "maxLength": 160 },
+    "target_environment": { "enum": ["staging", "production"] },
+    "billing_config": { "$ref": "#/$defs/billingConfig" },
+    "provider_prices": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/providerPrice" }
+    },
+    "feature_rate_cards": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/featureRateCard" }
+    },
+    "provider_routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/providerRoute" }
+    },
+    "credit_products": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/creditProduct" }
+    },
+    "system_controls": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/systemControl" }
+    }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "positiveInteger": { "type": "integer", "minimum": 1 },
+    "nonnegativeInteger": { "type": "integer", "minimum": 0 },
+    "nullableInstant": {
+      "oneOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "billingConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "version", "credits_per_retail_myr",
+        "net_revenue_sen_per_1000_credits", "provider_cost_target_bps",
+        "quote_safety_multiplier_bps", "payment_risk_reserve_bps",
+        "budget_myr_sen_per_usd", "minimum_topup_sen",
+        "effective_from", "effective_to"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "version": { "$ref": "#/$defs/positiveInteger" },
+        "credits_per_retail_myr": { "$ref": "#/$defs/positiveInteger" },
+        "net_revenue_sen_per_1000_credits": { "$ref": "#/$defs/positiveInteger" },
+        "provider_cost_target_bps": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "quote_safety_multiplier_bps": { "type": "integer", "minimum": 10000 },
+        "payment_risk_reserve_bps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "budget_myr_sen_per_usd": { "$ref": "#/$defs/positiveInteger" },
+        "minimum_topup_sen": { "$ref": "#/$defs/positiveInteger" },
+        "effective_from": { "type": "string", "format": "date-time" },
+        "effective_to": { "$ref": "#/$defs/nullableInstant" }
+      }
+    },
+    "providerPrice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "provider", "model", "version",
+        "input_microusd_per_million_tokens",
+        "cached_input_microusd_per_million_tokens",
+        "output_microusd_per_million_tokens", "tool_call_microusd",
+        "search_call_microusd", "effective_from", "effective_to",
+        "source_reference"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "provider": { "enum": ["openai", "deepseek", "minimax"] },
+        "model": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "version": { "$ref": "#/$defs/positiveInteger" },
+        "input_microusd_per_million_tokens": { "$ref": "#/$defs/nonnegativeInteger" },
+        "cached_input_microusd_per_million_tokens": { "$ref": "#/$defs/nonnegativeInteger" },
+        "output_microusd_per_million_tokens": { "$ref": "#/$defs/nonnegativeInteger" },
+        "tool_call_microusd": { "$ref": "#/$defs/nonnegativeInteger" },
+        "search_call_microusd": { "$ref": "#/$defs/nonnegativeInteger" },
+        "effective_from": { "type": "string", "format": "date-time" },
+        "effective_to": { "$ref": "#/$defs/nullableInstant" },
+        "source_reference": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "featureRateCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "feature_key", "version", "billing_config_id", "base_credits",
+        "credits_per_1000_input_tokens", "credits_per_1000_output_tokens",
+        "credits_per_page", "credits_per_source", "credits_per_search",
+        "minimum_credits", "maximum_credits", "max_provider_cost_microusd",
+        "max_input_tokens", "max_output_tokens", "max_tool_calls",
+        "max_search_calls", "max_pages", "max_sources", "max_retries",
+        "timeout_ms", "daily_user_credit_cap", "concurrent_job_cap",
+        "effective_from", "effective_to"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "feature_key": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,79}$" },
+        "version": { "$ref": "#/$defs/positiveInteger" },
+        "billing_config_id": { "$ref": "#/$defs/uuid" },
+        "base_credits": { "$ref": "#/$defs/nonnegativeInteger" },
+        "credits_per_1000_input_tokens": { "$ref": "#/$defs/nonnegativeInteger" },
+        "credits_per_1000_output_tokens": { "$ref": "#/$defs/nonnegativeInteger" },
+        "credits_per_page": { "$ref": "#/$defs/nonnegativeInteger" },
+        "credits_per_source": { "$ref": "#/$defs/nonnegativeInteger" },
+        "credits_per_search": { "$ref": "#/$defs/nonnegativeInteger" },
+        "minimum_credits": { "$ref": "#/$defs/positiveInteger" },
+        "maximum_credits": { "$ref": "#/$defs/positiveInteger" },
+        "max_provider_cost_microusd": { "$ref": "#/$defs/positiveInteger" },
+        "max_input_tokens": { "$ref": "#/$defs/positiveInteger" },
+        "max_output_tokens": { "$ref": "#/$defs/positiveInteger" },
+        "max_tool_calls": { "$ref": "#/$defs/nonnegativeInteger" },
+        "max_search_calls": { "$ref": "#/$defs/nonnegativeInteger" },
+        "max_pages": { "$ref": "#/$defs/nonnegativeInteger" },
+        "max_sources": { "$ref": "#/$defs/nonnegativeInteger" },
+        "max_retries": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "timeout_ms": { "type": "integer", "minimum": 1000, "maximum": 3600000 },
+        "daily_user_credit_cap": { "$ref": "#/$defs/positiveInteger" },
+        "concurrent_job_cap": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "effective_from": { "type": "string", "format": "date-time" },
+        "effective_to": { "$ref": "#/$defs/nullableInstant" }
+      }
+    },
+    "providerRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "feature_rate_card_id", "provider_price_id", "priority",
+        "evaluation_reference", "privacy_policy_version", "approved",
+        "effective_from", "effective_to"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "feature_rate_card_id": { "$ref": "#/$defs/uuid" },
+        "provider_price_id": { "$ref": "#/$defs/uuid" },
+        "priority": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "evaluation_reference": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "privacy_policy_version": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "approved": { "type": "boolean" },
+        "effective_from": { "type": "string", "format": "date-time" },
+        "effective_to": { "$ref": "#/$defs/nullableInstant" }
+      }
+    },
+    "creditProduct": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "product_key", "version", "kind", "stripe_product_id",
+        "stripe_price_id", "amount_sen", "credit_grant",
+        "expires_after_days", "effective_from", "effective_to"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "product_key": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,79}$" },
+        "version": { "$ref": "#/$defs/positiveInteger" },
+        "kind": { "enum": ["topup", "subscription", "semester", "promotion"] },
+        "stripe_product_id": { "type": "string", "pattern": "^prod_[A-Za-z0-9]+$" },
+        "stripe_price_id": { "type": "string", "pattern": "^price_[A-Za-z0-9]+$" },
+        "amount_sen": { "$ref": "#/$defs/positiveInteger" },
+        "credit_grant": { "$ref": "#/$defs/positiveInteger" },
+        "expires_after_days": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1, "maximum": 3650 },
+            { "type": "null" }
+          ]
+        },
+        "effective_from": { "type": "string", "format": "date-time" },
+        "effective_to": { "$ref": "#/$defs/nullableInstant" }
+      }
+    },
+    "systemControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope_type", "scope_key", "is_enabled",
+        "daily_provider_budget_microusd", "max_concurrent_calls"
+      ],
+      "properties": {
+        "scope_type": { "enum": ["global", "feature", "provider", "model"] },
+        "scope_key": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "is_enabled": { "type": "boolean" },
+        "daily_provider_budget_microusd": { "$ref": "#/$defs/nonnegativeInteger" },
+        "max_concurrent_calls": { "type": "integer", "minimum": 0, "maximum": 10000 }
+      }
+    }
+  }
+}

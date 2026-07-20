@@ -30,6 +30,7 @@ export type AidoDocumentStatus = "uploaded" | "processing" | "ready" | "failed";
 export type AidoWalletStatus = "active" | "frozen" | "closed";
 export type AidoCreditLotStatus = "active" | "depleted" | "expired" | "reversed";
 export type AidoLedgerEntryType = "grant" | "reserve" | "capture" | "release" | "expiry" | "refund" | "reversal" | "adjustment";
+export type AidoSubscriptionStatus = "incomplete" | "incomplete_expired" | "trialing" | "active" | "past_due" | "canceled" | "unpaid" | "paused";
 
 export type AidoProductMembership = {
   id: string;
@@ -236,6 +237,10 @@ export type Database = {
       aido_payment_events: TableShape<
         { id: string; stripe_event_id: string; stripe_event_type: string; event_kind: string; livemode: boolean; stripe_object_id: string; related_payment_event_id: string | null; user_id: string | null; credit_product_id: string | null; currency: string | null; amount_gross_sen: number | null; amount_net_sen: number | null; credits_affected: number | null; payload_sha256: string; status: string; failure_code: string | null; failure_message: string | null; received_at: string; processed_at: string | null },
         { id?: string; stripe_event_id: string; stripe_event_type: string; event_kind: string; livemode: boolean; stripe_object_id: string; related_payment_event_id?: string | null; user_id?: string | null; credit_product_id?: string | null; currency?: string | null; amount_gross_sen?: number | null; amount_net_sen?: number | null; credits_affected?: number | null; payload_sha256: string; status?: string; failure_code?: string | null; failure_message?: string | null; received_at?: string; processed_at?: string | null }
+      >;
+      aido_subscriptions: TableShape<
+        { id: string; user_id: string; credit_product_id: string; stripe_customer_id: string; stripe_subscription_id: string; stripe_price_id: string; status: AidoSubscriptionStatus; cancel_at_period_end: boolean; current_period_start: string; current_period_end: string; cancel_at: string | null; canceled_at: string | null; ended_at: string | null; trial_start: string | null; trial_end: string | null; latest_invoice_id: string | null; last_payment_failed_at: string | null; livemode: boolean; last_stripe_event_id: string; last_stripe_event_type: string; last_event_created_at: string; last_synced_at: string; created_at: string; updated_at: string },
+        { id?: string; user_id: string; credit_product_id: string; stripe_customer_id: string; stripe_subscription_id: string; stripe_price_id: string; status: AidoSubscriptionStatus; cancel_at_period_end?: boolean; current_period_start: string; current_period_end: string; cancel_at?: string | null; canceled_at?: string | null; ended_at?: string | null; trial_start?: string | null; trial_end?: string | null; latest_invoice_id?: string | null; last_payment_failed_at?: string | null; livemode: boolean; last_stripe_event_id: string; last_stripe_event_type: string; last_event_created_at: string; last_synced_at?: string; created_at?: string; updated_at?: string }
       >;
     };
     Views: Record<string, never>;

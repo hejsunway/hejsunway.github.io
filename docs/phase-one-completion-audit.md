@@ -2,13 +2,13 @@
 
 > Date: 2026-07-20  
 > Authority: `docs/implementation-plan.md`  
-> Status: **implemented and hardened locally; staging proof pending**
+> Status: **Phase 1 implementation gate closed on isolated staging**
 
 ## Decision
 
-Phase 2 staging release is not open yet. The Phase 1 code, additive completion
-migration, and privilege-hardening migration pass the local exit-gate tests, but
-the linked shared TutorPakar Supabase project
+Phase 2 implementation may proceed. The Phase 1 code, additive completion
+migration, and privilege-hardening migration pass both the local exit gate and
+the isolated staging gate. The linked shared TutorPakar Supabase production project
 does not record the original Phase 1 project, completion, or privilege-hardening
 migrations in `supabase_migrations.schema_migrations`. Metadata inspection shows
 that the original Phase 1 tables were applied manually, while the completion
@@ -21,8 +21,9 @@ controls are shown only after `aido_project_policies` is available, project read
 work before and after the completion columns exist, and deletion temporarily
 falls back to the original owner-scoped path when the new audited RPC is absent.
 
-Do not begin chargeable Phase 2 provider work or apply these migrations directly
-to the shared production database as an experiment.
+Do not enable chargeable Phase 2 provider work or apply these migrations directly
+to the shared production database. Phase 2 must now satisfy its own staging exit
+gate before any production promotion.
 
 ## Phase 1 evidence
 
@@ -59,7 +60,7 @@ pnpm build
 Observed results on 2026-07-20 after privilege hardening:
 
 - all four Phase 1 migrations applied cleanly to PostgreSQL 17 locally;
-- 41/41 Phase 1 pgTAP assertions passed (112/112 across the current database suite);
+- 41/41 Phase 1 pgTAP assertions passed (156/156 across the current database suite);
 - Phase 1 API/Storage integration passed;
 - Supabase database advisors returned no issues;
 - no-demo, ESLint, TypeScript, and production build passed.
@@ -87,11 +88,35 @@ experimentation. Before applying anything:
 6. Promote to the shared production project only after the staging exit gate is
    signed off.
 
-The connected Supabase account currently exposes no non-production project, so
-the staging portion cannot be inferred from another environment. Use
-[`phase-one-staging-release-runbook.md`](./phase-one-staging-release-runbook.md)
-to close this gate. Phase 2 staging work may begin only after those steps prove
-the Phase 1 staging release state.
+## Staging sign-off
+
+The dedicated `AidoForMe Staging` Supabase project
+(`vokjkogzvtohdinhxhkk`, Singapore) was created on 2026-07-20 at the confirmed
+cost of $0/month. The four canonical Phase 1 migrations were applied individually:
+
+- `aido_product_memberships`
+- `aido_phase_one_projects`
+- `aido_phase_one_completion`
+- `aido_phase_one_privilege_hardening`
+
+Evidence:
+
+- all 13 read-only schema, RLS, grant, RPC, sequence, bucket, Storage-policy,
+  and migration-history checks passed;
+- Supabase security advisors returned no findings;
+- performance advisors returned only expected unused-index informational notices
+  on the new empty database, with no warning or error;
+- the guarded hosted integration created two temporary confirmed Auth users,
+  inserted owner-scoped memberships, uploaded a real assignment file, registered
+  and completed the project, survived sign-out/sign-in, rejected mismatched
+  metadata, proved unrelated-user isolation, deleted Storage and relational state,
+  and retained the deletion audit until user cleanup;
+- post-test cleanup proved zero temporary Auth users, memberships, projects,
+  project members, documents, activity, policies, deletion-audit rows, and
+  Storage objects.
+
+Production was not modified. Phase 1 is therefore complete for implementation
+sequencing, and Phase 2 may proceed in local and staging environments.
 
 The exact linked-production findings are recorded in
 [`phase-one-linked-drift-audit.md`](./phase-one-linked-drift-audit.md). Production

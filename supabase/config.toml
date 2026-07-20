@@ -98,7 +98,7 @@ enable_manual_linking = false
 minimum_password_length = 8
 password_requirements = "lower_upper_letters_digits"
 
-[email]
+[auth.email]
 # Require users to confirm their email address before they can sign in.
 # Turning this off would let typos go through and break the recovery flow.
 enable_signup = true

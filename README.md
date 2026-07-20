@@ -58,6 +58,14 @@ publishable (or legacy anon) key from the **shared TutorPakar** project.
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Preferred (new `sb_publishable_…` key). |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Legacy JWT anon key. Read as fallback when the publishable key is unset. |
 | `NEXT_PUBLIC_SITE_URL` | `https://aidofor.me` in production, `http://localhost:3000` locally. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only billing/provider worker access for the selected environment. |
+| `OPENAI_API_KEY` | Server-only; required only when an approved route uses OpenAI. |
+| `DEEPSEEK_API_KEY` | Server-only; required only when an approved route uses DeepSeek. |
+| `MINIMAX_API_KEY` | Server-only; required only when an approved route uses MiniMax. |
+| `STRIPE_SECRET_KEY` | Server-only Stripe sandbox key in staging; live key only after production approval. |
+| `STRIPE_WEBHOOK_SECRET` | Secret for the environment-specific `/api/stripe/webhook` endpoint. |
+| `STRIPE_PORTAL_CONFIGURATION_ID` | Reviewed portal configuration with plan/quantity changes disabled. |
+| `CRON_SECRET` | Server-only bearer secret used by the reconciliation schedule. |
 
 **Never** prefix a Supabase secret or service-role key with
 `NEXT_PUBLIC_`. Browser bundles will ship those values to every visitor.
@@ -87,3 +95,6 @@ CI. Review the linked-project diff and the checklist in
 Phase 2 local implementation and remaining release blockers are recorded in
 `docs/phase-two-progress-audit.md`. Do not apply the Phase 2 migrations to the
 linked shared project without the staging and approval steps in that audit.
+Real billing configuration is validated with `pnpm billing:config
+/absolute/path/reviewed-config.json`; nothing is applied unless `--apply` and an
+exact `AIDO_BILLING_CONFIG_TARGET` are supplied.

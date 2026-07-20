@@ -7,50 +7,14 @@ import {
   calculateProviderCostMicrousd,
   type TrustedWorkEstimate,
 } from "@/lib/billing/quote";
-
-type JsonObject = Record<string, unknown>;
-
-type OpenAIUsage = {
-  input_tokens?: number;
-  input_tokens_details?: { cached_tokens?: number };
-  output_tokens?: number;
-};
-
-type OpenAIResponse = JsonObject & {
-  id?: string;
-  status?: string;
-  model?: string;
-  output?: Array<JsonObject>;
-  usage?: OpenAIUsage;
-};
-
-function outputText(response: OpenAIResponse): string {
-  const parts: string[] = [];
-  for (const item of response.output ?? []) {
-    if (item.type !== "message" || !Array.isArray(item.content)) continue;
-    for (const content of item.content as Array<JsonObject>) {
-      if (content.type === "output_text" && typeof content.text === "string") parts.push(content.text);
-    }
-  }
-  return parts.join("\n");
-}
-
-function actualToolCounts(response: OpenAIResponse) {
-  let toolCalls = 0;
-  let searches = 0;
-  for (const item of response.output ?? []) {
-    if (item.type === "web_search_call") searches += 1;
-    if (typeof item.type === "string" && item.type.endsWith("_call")) toolCalls += 1;
-  }
-  return { toolCalls, searches };
-}
-
-function errorCategory(status: number): string {
-  if (status === 408 || status === 504) return "provider_timeout";
-  if (status === 429) return "provider_rate_limit";
-  if (status >= 500) return "provider_unavailable";
-  return "provider_rejected_request";
-}
+import { resolveProviderAdapter } from "@/lib/providers/registry";
+import {
+  ProviderProtocolError,
+  type JsonObject,
+  type ProviderFunctionTool,
+  type ProviderMessage,
+  type ProviderResult,
+} from "@/lib/providers/types";
 
 async function releaseFailedReservation(
   reservationId: string,
@@ -67,7 +31,24 @@ async function releaseFailedReservation(
   if (error) throw error;
 }
 
-export async function runMeteredOpenAIResponse<T>(input: {
+function transportFailureCategory(error: unknown): string {
+  if (error instanceof ProviderProtocolError) return error.category;
+  if (error instanceof Error && error.name === "AbortError") return "provider_timeout";
+  return "provider_network_error";
+}
+
+function rpcRow<T>(data: T | T[] | null): T | null {
+  return Array.isArray(data) ? data[0] ?? null : data;
+}
+
+/**
+ * The only allowed runtime path to an AI provider.
+ *
+ * The reservation snapshot chooses the provider and exact model. Feature code
+ * supplies content and a trusted estimate, but cannot override routing,
+ * pricing, timeouts, or financial ceilings.
+ */
+export async function runMeteredProviderResponse<T>(input: {
   reservationId: string;
   callIdempotencyKey: string;
   usageIdempotencyKey: string;
@@ -75,26 +56,40 @@ export async function runMeteredOpenAIResponse<T>(input: {
   promptVersion: string;
   attempt: number;
   estimated: TrustedWorkEstimate;
-  estimatedProviderCostMicrousd: number;
   instructions: string;
-  modelInput: unknown;
-  tools?: Array<JsonObject>;
-  validate: (result: { response: OpenAIResponse; text: string }) => Promise<T>;
-}): Promise<{ artifact: T; responseId: string; usage: TrustedWorkEstimate }> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured on the server.");
+  messages: ProviderMessage[];
+  tools?: ProviderFunctionTool[];
+  validate: (result: { response: JsonObject; text: string }) => Promise<T>;
+}): Promise<{
+  artifact: T;
+  responseId: string | null;
+  usage: TrustedWorkEstimate & { cachedInputTokens: number };
+}> {
   const admin = createBillingAdminClient();
-
   const { data: reservation, error: reservationError } = await admin
     .from("aido_usage_reservations")
     .select("*,aido_feature_rate_cards(*),aido_provider_routes(*,aido_provider_prices(*))")
     .eq("id", input.reservationId)
     .single();
   if (reservationError || !reservation) throw reservationError ?? new Error("Reservation not found.");
+
   const rate = reservation.aido_feature_rate_cards as JsonObject;
   const route = reservation.aido_provider_routes as JsonObject;
-  const price = route.aido_provider_prices as JsonObject;
-  if (!rate || !price) throw new Error("Reservation pricing snapshot is incomplete.");
+  const price = route?.aido_provider_prices as JsonObject;
+  if (!rate || !route || !price) throw new Error("Reservation pricing snapshot is incomplete.");
+  const trustedEstimatedCost = calculateProviderCostMicrousd(price, input.estimated);
+
+  let adapter;
+  try {
+    adapter = resolveProviderAdapter(String(price.provider));
+  } catch (error) {
+    await releaseFailedReservation(
+      input.reservationId,
+      input.callIdempotencyKey,
+      "provider_not_configured",
+    );
+    throw error;
+  }
 
   const { error: runningError } = await admin.rpc("aido_mark_reservation_running", {
     p_reservation_id: input.reservationId,
@@ -110,7 +105,7 @@ export async function runMeteredOpenAIResponse<T>(input: {
       p_reservation_id: input.reservationId,
       p_idempotency_key: input.callIdempotencyKey,
       p_attempt: input.attempt,
-      p_estimated_cost_microusd: input.estimatedProviderCostMicrousd,
+      p_estimated_cost_microusd: toSafeNumber(trustedEstimatedCost, "estimated provider cost"),
       p_estimated_input_tokens: input.estimated.inputTokens,
       p_estimated_output_tokens: input.estimated.outputTokens,
       p_estimated_tool_calls: input.estimated.toolCalls,
@@ -120,65 +115,86 @@ export async function runMeteredOpenAIResponse<T>(input: {
     },
   );
   if (authorizationError) throw authorizationError;
-  const authorization = Array.isArray(authorizationData) ? authorizationData[0] : authorizationData;
+  const authorization = rpcRow(authorizationData);
   if (!authorization?.id || authorization.status !== "authorized") {
-    throw new Error("Provider call was already finalized; retrieve the persisted job result instead of calling again.");
+    throw new Error("Provider call was already finalized; load the persisted job result.");
+  }
+
+  const { data: dispatchClaim, error: dispatchError } = await admin.rpc(
+    "aido_mark_provider_call_dispatched",
+    { p_authorization_id: authorization.id },
+  );
+  if (dispatchError) throw dispatchError;
+  if (dispatchClaim !== true) {
+    throw new Error(
+      "Provider dispatch already started. The job must reconcile its persisted result before retrying.",
+    );
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), Number(rate.timeout_ms));
-  let response: Response;
-  let payload: OpenAIResponse;
   const startedAt = Date.now();
+  let result: ProviderResult;
   try {
-    response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": input.callIdempotencyKey,
-      },
-      body: JSON.stringify({
-        model: String(price.model),
-        instructions: input.instructions,
-        input: input.modelInput,
-        tools: input.tools ?? [],
-        max_output_tokens: input.estimated.outputTokens,
-        store: false,
-      }),
+    result = await adapter.execute({
+      model: String(price.model),
+      instructions: input.instructions,
+      messages: input.messages,
+      tools: input.tools ?? [],
+      maxOutputTokens: input.estimated.outputTokens,
+      idempotencyKey: input.callIdempotencyKey,
       signal: controller.signal,
     });
-    payload = await response.json() as OpenAIResponse;
   } catch (error) {
-    clearTimeout(timeout);
-    const category = error instanceof Error && error.name === "AbortError"
-      ? "provider_timeout"
-      : "provider_network_error";
-    await releaseFailedReservation(input.reservationId, input.callIdempotencyKey, category);
-    throw error;
+    // Once dispatched, a timeout, network failure, or malformed response is
+    // financially ambiguous. Releasing and retrying immediately could pay the
+    // provider twice. The expired dispatch is instead surfaced by scheduled
+    // reconciliation and the reservation remains fail-closed meanwhile.
+    const category = transportFailureCategory(error);
+    throw new Error(`Provider dispatch requires reconciliation: ${category}.`, { cause: error });
   } finally {
     clearTimeout(timeout);
   }
 
-  const usage = payload.usage;
-  const counts = actualToolCounts(payload);
-  const actual: TrustedWorkEstimate & { cachedInputTokens: number } = {
-    inputTokens: usage?.input_tokens ?? 0,
-    cachedInputTokens: usage?.input_tokens_details?.cached_tokens ?? 0,
-    outputTokens: usage?.output_tokens ?? 0,
+  const actual = {
+    inputTokens: result.usage.inputTokens,
+    cachedInputTokens: result.usage.cachedInputTokens,
+    outputTokens: result.usage.outputTokens,
     pages: input.estimated.pages,
     sources: input.estimated.sources,
-    toolCalls: counts.toolCalls,
-    searches: counts.searches,
+    toolCalls: result.usage.toolCalls,
+    searches: result.usage.searches,
   };
   const actualProviderCost = calculateProviderCostMicrousd(price, actual);
-  const succeeded = response.ok && payload.status === "completed";
-  const failureCategory = succeeded ? null : errorCategory(response.status);
+  const usageWithinAuthorization =
+    actual.inputTokens <= input.estimated.inputTokens
+    && actual.outputTokens <= input.estimated.outputTokens
+    && actual.toolCalls <= input.estimated.toolCalls
+    && actual.searches <= input.estimated.searches
+    && actualProviderCost <= trustedEstimatedCost;
+
+  let artifact: T | null = null;
+  let validationError: unknown;
+  if (result.completed && usageWithinAuthorization) {
+    try {
+      artifact = await input.validate({ response: result.raw, text: result.text });
+    } catch (error) {
+      validationError = error;
+    }
+  }
+  const succeeded = result.completed && usageWithinAuthorization && validationError === undefined;
+  const failureCategory = succeeded
+    ? null
+    : !usageWithinAuthorization
+      ? "provider_usage_exceeded_authorization"
+      : validationError === undefined
+        ? result.failureCategory ?? "provider_incomplete_response"
+        : "output_validation_failed";
 
   const { error: usageError } = await admin.rpc("aido_record_usage_event", {
     p_authorization_id: authorization.id,
     p_idempotency_key: input.usageIdempotencyKey,
-    p_provider_request_id: payload.id ?? null,
+    p_provider_request_id: result.responseId,
     p_prompt_version: input.promptVersion,
     p_input_tokens: actual.inputTokens,
     p_cached_input_tokens: actual.cachedInputTokens,
@@ -193,23 +209,21 @@ export async function runMeteredOpenAIResponse<T>(input: {
     p_failure_category: failureCategory,
   });
   if (usageError) throw usageError;
+
   if (!succeeded) {
     await releaseFailedReservation(input.reservationId, input.callIdempotencyKey, failureCategory!);
-    throw new Error(`OpenAI response failed: ${failureCategory}.`);
-  }
-
-  let artifact: T;
-  try {
-    artifact = await input.validate({ response: payload, text: outputText(payload) });
-  } catch (error) {
-    await releaseFailedReservation(input.reservationId, input.callIdempotencyKey, "output_validation_failed");
-    throw error;
+    if (validationError !== undefined) throw validationError;
+    throw new Error(`Provider response failed: ${failureCategory}.`);
   }
 
   const capture = calculateCreditsFromRate(rate, actual);
   const maximum = asSafeBigInt(reservation.maximum_credits, "reservation maximum");
   if (capture > maximum) {
-    await releaseFailedReservation(input.reservationId, input.callIdempotencyKey, "actual_charge_exceeded_reservation");
+    await releaseFailedReservation(
+      input.reservationId,
+      input.callIdempotencyKey,
+      "actual_charge_exceeded_reservation",
+    );
     throw new Error("Actual credit charge exceeded the reserved maximum.");
   }
   const { error: settleError } = await admin.rpc("aido_settle_reservation", {
@@ -220,8 +234,8 @@ export async function runMeteredOpenAIResponse<T>(input: {
   if (settleError) throw settleError;
 
   return {
-    artifact,
-    responseId: String(payload.id),
+    artifact: artifact as T,
+    responseId: result.responseId,
     usage: actual,
   };
 }

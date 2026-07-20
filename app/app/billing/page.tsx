@@ -1,19 +1,22 @@
-import { ArrowDownLeft, ArrowUpRight, CircleDollarSign, WalletCards } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, CircleDollarSign, ExternalLink, WalletCards } from "lucide-react";
 import { getBillingOverview } from "@/lib/billing/queries";
 import { listActiveCreditProducts } from "@/lib/billing/catalog";
-import { startCreditCheckout } from "@/lib/billing/actions";
+import { openBillingPortal, startCreditCheckout } from "@/lib/billing/actions";
 
 function signed(value: number) {
   return value > 0 ? `+${value}` : String(value);
 }
 
 export default async function BillingPage() {
-  const [{ wallet, lots, ledger, payments, available: billingAvailable }, products] = await Promise.all([
+  const [{ wallet, lots, ledger, payments, subscriptions, available: billingAvailable }, products] = await Promise.all([
     getBillingOverview(),
     listActiveCreditProducts(),
   ]);
   const available = wallet?.available_credits ?? 0;
   const reserved = wallet?.reserved_credits ?? 0;
+  const subscription = subscriptions.find((item) => !["canceled", "incomplete_expired"].includes(item.status))
+    ?? subscriptions[0]
+    ?? null;
 
   return (
     <main className="app-content billing-page">
@@ -57,6 +60,20 @@ export default async function BillingPage() {
           </div>
           <dl><div><dt>Credit lots</dt><dd>{lots.length}</dd></div><div><dt>Payment events</dt><dd>{payments.length}</dd></div></dl>
         </aside>
+      </section>
+
+      <section className="billing-subscription">
+        <div>
+          <span>Subscription</span>
+          <strong>{subscription ? subscription.status.replaceAll("_", " ") : "No subscription"}</strong>
+          <small>{subscription
+            ? `${subscription.cancel_at_period_end ? "Access ends" : "Current period renews"} ${new Date(subscription.current_period_end).toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric" })}`
+            : "Choose a subscription product above when one becomes available."}</small>
+          {subscription?.last_payment_failed_at && <em>Latest payment attempt failed. Update the payment method in Stripe.</em>}
+        </div>
+        {subscription && <form action={openBillingPortal}>
+          <button className="button" type="submit">Manage in Stripe <ExternalLink size={14} /></button>
+        </form>}
       </section>
     </main>
   );

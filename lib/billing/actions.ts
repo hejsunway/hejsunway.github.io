@@ -52,6 +52,20 @@ export async function startCreditCheckout(formData: FormData) {
     }
   }
 
+  if (product.kind === "subscription") {
+    const existingSubscription = await admin
+      .from("aido_subscriptions")
+      .select("stripe_subscription_id")
+      .eq("user_id", user.id)
+      .in("status", ["incomplete", "trialing", "active", "past_due", "unpaid", "paused"])
+      .limit(1)
+      .maybeSingle();
+    if (existingSubscription.error) throw existingSubscription.error;
+    if (existingSubscription.data) {
+      throw new Error("You already have a subscription. Manage it from the billing portal.");
+    }
+  }
+
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
   if (!siteUrl) throw new Error("NEXT_PUBLIC_SITE_URL is not configured.");
   const session = await stripe.checkout.sessions.create({
@@ -62,7 +76,35 @@ export async function startCreditCheckout(formData: FormData) {
     success_url: `${siteUrl}/app/billing?checkout=success`,
     cancel_url: `${siteUrl}/app/billing?checkout=cancelled`,
     metadata: { aido_product_key: product.product_key },
+    subscription_data: product.kind === "subscription"
+      ? { metadata: { aido_user_id: user.id, aido_product_key: product.product_key } }
+      : undefined,
   }, { idempotencyKey: `aido-checkout-${user.id}-${product.id}-${randomUUID()}` });
   if (!session.url) throw new Error("Stripe Checkout returned no URL.");
+  redirect(session.url);
+}
+
+export async function openBillingPortal() {
+  const user = await requireAuthOrRedirect("/app/billing");
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  const configuration = process.env.STRIPE_PORTAL_CONFIGURATION_ID;
+  if (!siteUrl || !configuration) {
+    throw new Error("The Stripe billing portal is not configured.");
+  }
+
+  const admin = createBillingAdminClient();
+  const { data: customer, error } = await admin
+    .from("aido_payment_customers")
+    .select("stripe_customer_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!customer) throw new Error("No Stripe billing profile exists for this account.");
+
+  const session = await createStripeClient().billingPortal.sessions.create({
+    customer: customer.stripe_customer_id,
+    configuration,
+    return_url: `${siteUrl}/app/billing`,
+  });
   redirect(session.url);
 }

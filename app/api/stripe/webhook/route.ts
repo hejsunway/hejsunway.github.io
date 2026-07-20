@@ -1,13 +1,62 @@
 import { createHash } from "node:crypto";
 import type Stripe from "stripe";
 import { createBillingAdminClient } from "@/lib/billing/admin";
-import { createStripeClient } from "@/lib/billing/stripe";
+import { assertStripeLivemode, createStripeClient } from "@/lib/billing/stripe";
 
 export const runtime = "nodejs";
 
 function objectId(value: string | { id: string } | null): string | null {
   if (!value) return null;
   return typeof value === "string" ? value : value.id;
+}
+
+function stripeTime(value: number | null): string | null {
+  return value == null ? null : new Date(value * 1000).toISOString();
+}
+
+function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+  return objectId(invoice.parent?.subscription_details?.subscription ?? null);
+}
+
+async function processSubscriptionProjection(
+  event: Stripe.Event,
+  subscriptionId: string,
+  digest: string,
+  paymentState: "unchanged" | "succeeded" | "failed" = "unchanged",
+) {
+  const stripe = createStripeClient();
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+    expand: ["items.data.price", "latest_invoice"],
+  });
+  const customerId = objectId(subscription.customer);
+  const item = subscription.items.data.length === 1 ? subscription.items.data[0] : null;
+  const priceId = item ? objectId(item.price) : null;
+  if (!customerId || !item || !priceId || item.quantity !== 1) {
+    throw new Error("Subscription must contain exactly one mapped price with quantity one.");
+  }
+
+  const { error } = await createBillingAdminClient().rpc("aido_process_verified_subscription_event", {
+    p_stripe_event_id: event.id,
+    p_stripe_event_type: event.type,
+    p_event_created_at: stripeTime(event.created),
+    p_payload_sha256: digest,
+    p_livemode: event.livemode,
+    p_stripe_subscription_id: subscription.id,
+    p_stripe_customer_id: customerId,
+    p_stripe_price_id: priceId,
+    p_status: subscription.status,
+    p_cancel_at_period_end: subscription.cancel_at_period_end,
+    p_current_period_start: stripeTime(item.current_period_start),
+    p_current_period_end: stripeTime(item.current_period_end),
+    p_cancel_at: stripeTime(subscription.cancel_at),
+    p_canceled_at: stripeTime(subscription.canceled_at),
+    p_ended_at: stripeTime(subscription.ended_at),
+    p_trial_start: stripeTime(subscription.trial_start),
+    p_trial_end: stripeTime(subscription.trial_end),
+    p_latest_invoice_id: objectId(subscription.latest_invoice),
+    p_payment_state: paymentState,
+  });
+  if (error) throw error;
 }
 
 async function processCheckout(event: Stripe.Event, session: Stripe.Checkout.Session, digest: string) {
@@ -100,6 +149,9 @@ async function processPaidInvoice(event: Stripe.Event, invoice: Stripe.Invoice, 
     p_payload_sha256: digest,
   });
   if (error) throw error;
+
+  const subscriptionId = invoiceSubscriptionId(invoice);
+  if (subscriptionId) await processSubscriptionProjection(event, subscriptionId, digest, "succeeded");
 }
 
 async function processReversal(event: Stripe.Event, digest: string) {
@@ -150,16 +202,42 @@ export async function POST(request: Request) {
   }
 
   try {
+    assertStripeLivemode(event.livemode);
     const digest = createHash("sha256").update(body).digest("hex");
     if (event.type === "checkout.session.completed") {
-      await processCheckout(event, event.data.object as Stripe.Checkout.Session, digest);
+      const session = event.data.object as Stripe.Checkout.Session;
+      if (session.mode === "subscription") {
+        const subscriptionId = objectId(session.subscription);
+        if (!subscriptionId) throw new Error("Subscription Checkout session is missing its subscription.");
+        await processSubscriptionProjection(event, subscriptionId, digest);
+      } else {
+        await processCheckout(event, session, digest);
+      }
     } else if (event.type === "invoice.paid") {
       await processPaidInvoice(event, event.data.object as Stripe.Invoice, digest);
+    } else if (event.type === "invoice.payment_failed") {
+      const invoice = event.data.object as Stripe.Invoice;
+      const subscriptionId = invoiceSubscriptionId(invoice);
+      if (!subscriptionId) throw new Error("Failed invoice is not attached to a subscription.");
+      await processSubscriptionProjection(event, subscriptionId, digest, "failed");
+    } else if (
+      event.type === "customer.subscription.created"
+      || event.type === "customer.subscription.updated"
+      || event.type === "customer.subscription.deleted"
+      || event.type === "customer.subscription.paused"
+      || event.type === "customer.subscription.resumed"
+    ) {
+      const subscription = event.data.object as Stripe.Subscription;
+      await processSubscriptionProjection(event, subscription.id, digest);
     } else if (event.type === "refund.created" || event.type === "charge.dispute.created") {
       await processReversal(event, digest);
     }
     return Response.json({ received: true });
-  } catch {
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+      ? error.code
+      : "stripe_event_reconciliation_failed";
+    console.error("Stripe webhook reconciliation failed", { eventId: event.id, eventType: event.type, code });
     return new Response("Stripe event could not be reconciled.", { status: 500 });
   }
 }

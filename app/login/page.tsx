@@ -20,6 +20,7 @@ type SearchParams = Promise<{
   message?: string;
   reset?: string;
   confirmed?: string;
+  email?: string;
 }>;
 
 export default async function LoginPage({
@@ -34,9 +35,16 @@ export default async function LoginPage({
     ERROR_MESSAGES[errorCode] ??
     (params.message ? decodeURIComponent(params.message) : undefined);
   const showResetConfirmation = params.reset === "1";
+  const showSignupConfirmation = params.confirmed === "1" && Boolean(params.email);
 
   return (
     <AuthShell mode="login">
+      {showSignupConfirmation ? (
+        <div className="auth-banner auth-banner--success" role="status">
+          We sent a confirmation link to <b>{params.email}</b>. Open it on this device to
+          verify your email, then sign in.
+        </div>
+      ) : null}
       <LoginForm
         nextPath={nextPath}
         initialError={errorMessage}

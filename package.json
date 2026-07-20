@@ -12,9 +12,14 @@
     "test:phase1": "node scripts/test-phase-one-integration.mjs",
     "test:phase1:staging": "node scripts/test-phase-one-staging.mjs",
     "test:phase2": "node scripts/test-phase-two-concurrency.mjs",
+    "test:billing-config": "node scripts/test-billing-configuration-boundary.mjs",
+    "test:providers": "node scripts/test-provider-adapters.mjs",
+    "billing:config": "node scripts/apply-billing-configuration.mjs",
+    "billing:import-provider-invoice": "node scripts/import-provider-invoice.mjs",
+    "phase2:preflight": "node scripts/phase-two-preflight.mjs",
     "db:advisors": "supabase db advisors --local --fail-on warn",
     "check:no-demo": "node scripts/check-no-demo-data.mjs",
-    "check": "pnpm check:no-demo && pnpm lint && pnpm typecheck && pnpm build"
+    "check": "pnpm check:no-demo && pnpm test:billing-config && pnpm test:providers && pnpm lint && pnpm typecheck && pnpm build"
   },
   "dependencies": {
     "@fontsource/comfortaa": "^5.2.8",

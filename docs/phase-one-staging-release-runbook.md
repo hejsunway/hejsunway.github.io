@@ -2,6 +2,8 @@
 
 > Scope: prove the Phase 1 exit gate on a non-production Supabase project before any Phase 2 release work.
 
+> Completed: 2026-07-20 on staging project `vokjkogzvtohdinhxhkk`.
+
 ## Hard boundaries
 
 - The shared TutorPakar project ref `gmqlmqdqpytgjxolgrwq` is production and is not an allowed staging target.
@@ -24,7 +26,7 @@ Review and apply these migrations to staging in order through the approved migra
 3. `20260719141159_aido_phase_one_completion.sql`
 4. `20260719142000_aido_phase_one_privilege_hardening.sql`
 
-Do not apply the Phase 2 migrations until the checks below pass. After application, verify that the four versions appear in `supabase_migrations.schema_migrations`, run `scripts/audit-phase-one-schema.sql` and require every row to pass, inspect RLS and explicit grants, and run both Supabase security and performance advisors.
+Do not apply the Phase 2 migrations until the checks below pass. After application, verify that all four canonical migration names appear in `supabase_migrations.schema_migrations` (managed API application may assign new server timestamps), run `scripts/audit-phase-one-schema.sql` and require every row to pass, inspect RLS and explicit grants, and run both Supabase security and performance advisors.
 
 ## 3. Run the guarded integration check
 
@@ -50,7 +52,7 @@ The script refuses localhost, refuses the production ref, and refuses an API URL
 
 Phase 1 is ready to open Phase 2 staging work only when all of these have evidence:
 
-- four Phase 1 migrations recorded in staging history;
+- four canonical Phase 1 migration names recorded in staging history;
 - every `scripts/audit-phase-one-schema.sql` check passes;
 - staging security and performance advisors have no unresolved warning;
 - `pnpm test:phase1:staging` passes;
