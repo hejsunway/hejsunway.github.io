@@ -35,6 +35,16 @@ function present(name) {
   return pass;
 }
 
+function validationFailureDetail(error) {
+  const stderr = typeof error?.stderr === "string" ? error.stderr : "";
+  const safeErrorLine = stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.startsWith("Error:"));
+  if (safeErrorLine) return safeErrorLine.slice("Error:".length).trim();
+  return "validation failed";
+}
+
 let configuration;
 try {
   const raw = await readFile(resolve(configPath), "utf8");
@@ -49,7 +59,7 @@ try {
   check(
     "billing_configuration",
     false,
-    error instanceof Error ? error.message.split("\n")[0] : "validation failed",
+    validationFailureDetail(error),
   );
 }
 
@@ -90,25 +100,31 @@ const stripeKey = process.env.STRIPE_SECRET_KEY ?? "";
 const expectedStripePrefix = environment === "staging"
   ? ["sk_test_", "rk_test_"]
   : ["sk_live_", "rk_live_"];
+const stripeKeyPass = expectedStripePrefix.some((prefix) => stripeKey.startsWith(prefix));
 check(
   "STRIPE_SECRET_KEY",
-  expectedStripePrefix.some((prefix) => stripeKey.startsWith(prefix)),
-  stripeKey
+  stripeKeyPass,
+  stripeKeyPass
+    ? `${environment === "staging" ? "test" : "live"} mode`
+    : stripeKey
     ? `must be ${environment === "staging" ? "test" : "live"} mode`
     : "missing",
 );
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+const stripeWebhookPass = stripeWebhookSecret.startsWith("whsec_")
+  && stripeWebhookSecret.length > "whsec_".length;
 check(
   "STRIPE_WEBHOOK_SECRET",
-  stripeWebhookSecret.startsWith("whsec_") && stripeWebhookSecret.length > "whsec_".length,
-  stripeWebhookSecret ? "invalid webhook-signing secret" : "missing",
+  stripeWebhookPass,
+  stripeWebhookPass ? "set" : stripeWebhookSecret ? "invalid webhook-signing secret" : "missing",
 );
 const stripePortalConfigurationId = process.env.STRIPE_PORTAL_CONFIGURATION_ID ?? "";
+const stripePortalPass = stripePortalConfigurationId.startsWith("bpc_")
+  && stripePortalConfigurationId.length > "bpc_".length;
 check(
   "STRIPE_PORTAL_CONFIGURATION_ID",
-  stripePortalConfigurationId.startsWith("bpc_")
-    && stripePortalConfigurationId.length > "bpc_".length,
-  stripePortalConfigurationId ? "invalid portal configuration ID" : "missing",
+  stripePortalPass,
+  stripePortalPass ? "set" : stripePortalConfigurationId ? "invalid portal configuration ID" : "missing",
 );
 present("CRON_SECRET");
 

@@ -25,6 +25,7 @@
 - Daily, secret-protected reconciliation runner with durable run/issue records. It compares wallet/ledger/reservation/payment effects, recent Stripe objects, subscription projections, and immutable provider-invoice imports without moving credits.
 - Separate daily, secret-protected financial maintenance expires overdue reservations before overdue credit lots. It processes bounded batches, isolates row failures, and leaves overdue state visible to reconciliation until successfully resolved.
 - Real provider-invoice import command (`pnpm billing:import-provider-invoice`) hashes the supplied invoice record and accepts no built-in sample or fallback data.
+- Secret-safe deployed-cron verifier proves unauthenticated denial, invokes each staging production route exactly once, and verifies the persisted reconciliation run without printing credentials or retrying ambiguous mutations.
 
 ## Requirement-by-requirement state
 
@@ -36,10 +37,10 @@
 | Verified, idempotent Stripe grants | Raw-signature route and atomic event functions | Code complete; external Stripe test-mode evidence missing |
 | Real balance, history, subscription, and top-up interfaces | Real wallet/history, Checkout, lifecycle projection, and configured portal action | Code complete; external Stripe test-mode evidence missing |
 | Plan/user/concurrency/provider controls and kill switches | Rate cards, system controls, provider budget authorization | Complete locally |
-| Server-only gateway with hard ceilings | OpenAI, DeepSeek, and MiniMax adapters; database authorization plus single-dispatch claim | Complete locally; external call evidence missing |
+| Server-only gateway with hard ceilings | OpenAI, DeepSeek, and MiniMax adapters; database authorization plus single-dispatch claim | Complete locally; latest retry passed automatic anchoring but failed human semantic quality review |
 | Provider-reported usage and actual-cost capture | Token/cache/tool/search/latency/request/cost fields, settlement, and provider-invoice comparison | Code complete; first real provider export/invoice evidence missing |
-| Approved lower-cost routing | Versioned approved route table and fail-closed lookup | Mechanism complete; no reviewed effective configuration |
-| Automated financial and provider-invoice reconciliation | Durable daily runner, Stripe comparison, immutable hashed invoice import, and internal mismatch functions | Complete locally and schema-verified on staging; requires first real invoice and Stripe test run |
+| Approved lower-cost routing | Versioned approved route table and fail-closed lookup | Mechanism complete; reviewed staging draft remains disabled because quality gate failed |
+| Automated financial and provider-invoice reconciliation | Durable daily runner, Stripe comparison, immutable hashed invoice import, internal mismatch functions, and completed manual staging run `9d55511f-f8cc-4387-912e-c3d415611366` | Routes and persistence verified on staging; scheduler-originated run, first real invoice, and Stripe lifecycle still missing |
 
 ## Verification evidence
 
@@ -50,6 +51,7 @@ supabase test db --local                   197/197 pass
 pnpm test:phase2                           concurrent duplicate/overspend pass
 pnpm test:billing-config                   environment/project boundary pass
 pnpm test:providers                        OpenAI/DeepSeek/MiniMax contracts pass
+pnpm phase2:verify-cron-staging            deployed 401/200 and persisted-run checks pass
 supabase db advisors --local --fail-on warn no issues
 pnpm check:no-demo                         pass
 pnpm lint                                  pass
@@ -68,14 +70,113 @@ The concurrency test makes two simultaneous identical reservations and proves on
   expiry descriptions/metadata record 180 days and 35 days respectively. The
   cancellation-only portal configuration `bpc_1Tv93i1tdTVob40Gc9FMuhaa` is
   active with payment-method updates and invoice history enabled, cancellation
-  at period end, and plan/quantity changes disabled. See
+  at period end, and plan/quantity changes disabled. An active sandbox webhook
+  destination now points at the isolated Vercel staging deployment and its
+  signing secret is stored server-side only. See
   [`phase-two-stripe-staging-evidence.md`](./phase-two-stripe-staging-evidence.md).
-  No webhook endpoint or payment/refund/dispute lifecycle evidence exists yet.
-- No provider API key was used and no chargeable provider call was made.
-- Subscription lifecycle and reconciliation code are complete locally, but test-mode Checkout, webhook delivery, portal cancellation, retry/dunning, refund, and dispute evidence is still required.
-- The Vercel daily schedule runs only for production deployments. A staging Vercel project must therefore use its own production deployment and set `CRON_SECRET`; preview deployments do not execute the schedule.
+  No real webhook delivery or payment/refund/dispute lifecycle evidence exists
+  yet.
+- Controlled OpenAI staging evaluations were executed against the uploaded
+  developer-owned brief/rubric. The completed saved response failed real
+  PDF-page/excerpt anchor validation. After explicit approval, a deterministic
+  anchored-text retry completed with 10 requirements and 16 canonical anchors;
+  all automatic source/page/text-hash validation checks pass. Human checklist
+  review against the real PDFs then failed: 37.5% critical recall, 90% anchor
+  accuracy, nine missing critical requirements, three partly correct rows, and
+  incomplete coverage. The table parser omitted the visible rubric criteria
+  from the provider input. After explicit approval, a table-aware local-OCR v5
+  request completed with 26 requirements and 41 anchors and passed automatic
+  validation, but human review failed at 66.7% critical recall and 54.8% anchor
+  accuracy. Four critical items were missing and seven rows were partly
+  correct. After explicit approval, the v6 row-aware request completed with 25
+  requirements and 48 materialized anchors and passed every automatic check.
+  Its locked semantic review still failed: 58.8% critical-requirement recall
+  and 96.4% requirement-anchor accuracy, with six brief/learning-outcome
+  requirements omitted, one required ambiguity missed, one unsupported
+  completion of truncated rubric text, and two contextual notices promoted to
+  requirements. After explicit approval, v7 recovered every previously missing
+  learning outcome, instruction, ambiguity, and context classification. Four
+  identical coverage rows were safely canonicalized offline without another
+  provider request. The semantic review still failed narrowly at 94.1%
+  critical recall and 96.3% anchor accuracy because one row completed truncated
+  source text with unsupported wording. After explicit approval, one v8 Luna
+  comparison completed with 24 requirements and 34 anchors. Automatic
+  validation passed, all returned rows were supported, and the prior truncated
+  completion was corrected. The locked semantic review still failed because
+  all four learning outcomes were misclassified as context-only: critical
+  recall fell to 76.5% (13 of 17), although returned-row anchor accuracy was
+  100%. The evaluator now has a deterministic guard that prevents the two
+  numbered, student-directed action blocks from passing as context-only. One
+  approved post-fix Luna request returned HTTP 200 without a completed response
+  and was rejected; no retry or mini fallback occurred. The next offline
+  contract also requires low confidence, student confirmation, and an ambiguity
+  for any requirement based on incomplete source text. The route remains
+  unapproved. Non-secret
+  metrics and the decision
+  are recorded in
+  [`phase-two-provider-decision-evidence.md`](./phase-two-provider-decision-evidence.md).
+- The owner rejected GPT-5.6 Sol on cost and selected `gpt-5.6-luna` for one
+  controlled comparison, with the failed `gpt-5.4-mini-2026-03-17` result
+  retained only as a manual technical fallback. The Luna request used the
+  exact v7 prompt/schema and locked checklist, `reasoning.effort: none`,
+  `store: false`, and no tools/search. It took 14,527 ms, used 5,062 input,
+  5,059 cache-write input, and 3,492 output tokens, and was estimated at USD
+  0.0273. The comparable completed mini request cost USD 0.0202 and came much
+  closer to the locked recall threshold, so mini is the recommended next
+  controlled candidate, not an approved route. One subsequently approved
+  guarded mini request completed for USD 0.0209. Both new safety guards passed,
+  but automatic coverage validation failed because one of 27 required anchors
+  was missing and two rubric anchors had conflicting duplicate classifications.
+  The private report was retained, semantic review was blocked, and no retry or
+  fallback request was made. The array-shaped coverage receipt has now been
+  replaced offline by a strict object with all 27 anchor IDs as required unique
+  properties. After explicit approval, one v11 mini request used this contract
+  and returned every required anchor exactly once. A shape-only null-metadata
+  anchor was removed by a deterministic offline canonicalizer, after which all
+  automatic checks passed without another provider request. The locked human
+  review nevertheless failed: critical recall was 88.2% (15 of 17) and anchor
+  accuracy was 96.3% (26 of 27). One critical country-impact purpose was
+  omitted and one truncated rubric fragment was completed with unsupported
+  wording. Mini therefore remains unapproved. The offline v13 contract now
+  creates five deterministic complete atomic clauses, binds the exact text and
+  hash of each clause into the strict schema, and requires a different
+  one-clause requirement for every receipt. It independently marks the
+  truncated OCR block, emits no atomic clause from it, prohibits that block
+  from all semantic extraction, and permits only one fixed neutral ambiguity.
+  Regression tests reject merged or omitted clauses and any guessed completion.
+  The v13 isolated-staging dry run passes with no provider request; v13 is not
+  yet provider quality evidence and its checklist still needs versioned review.
+  Because the quality gate failed and
+  the billing schema cannot yet price cache-write tokens separately, both
+  routes and all controls remain disabled and unapplied.
+- The Stripe Sandbox catalog now matches the reviewed configuration exactly for
+  both product keys, amounts, billing modes, grants, and expiry. A guarded
+  metadata repair updated only the four mismatched sandbox product-key fields;
+  compensating rollback was available, read-back passed, and an immediate
+  read-only rerun found zero pending changes. Deployment
+  `dpl_DXAqB56QpptwmrLnj7RcYdchJXt5` also returns HTTP 400 for both missing and
+  invalid webhook signatures, independently confirmed by Vercel runtime logs.
+  These are configuration and rejection-path facts, not financial lifecycle
+  evidence. Test-mode Checkout, valid signed webhook delivery, portal
+  cancellation, retry/dunning, refund, dispute, duplicate delivery, and
+  financial reconciliation are still required.
+- The staging production deployment now has real cron-route evidence. Browser
+  GET requests to maintenance and reconciliation returned 401. Authenticated
+  POSTs returned 200; maintenance had no failures, and reconciliation persisted
+  completed run `9d55511f-f8cc-4387-912e-c3d415611366` with six internal
+  checks and zero issues. Vercel runtime logs independently show all four
+  requests. This was a manual authenticated verification, not a scheduler
+  trigger. The deployment missed the 2026-07-20 UTC windows, so scheduler-
+  originated evidence remains required from the next eligible daily windows.
+  See [`phase-two-cron-staging-evidence.md`](./phase-two-cron-staging-evidence.md).
 - Provider invoice reconciliation has a real import path but cannot be proven until a real provider export/invoice is supplied. Network failures with no provider-reported usage rely on this comparison to discover a late provider charge.
-- Product prices, credit grants, provider rates, approved models, privacy approvals, limits, and kill switches have no seed data. Staging was rechecked after migration and still has zero configuration imports, configs, prices, rates, routes, products, controls, wallets, provider authorizations, and usage events. A reviewed real configuration file is required before any paid feature can run.
+- A private, outside-repository staging configuration draft now contains the
+  approved Stripe products, credit grants/expiry, Luna and mini OpenAI price snapshots,
+  margin/FX controls, and operational limits. Its provider route and all four
+  controls remain disabled. Secret-safe preflight passes the isolated Supabase
+  target, Stripe test mode, and required server-secret checks, then correctly
+  blocks because there is no approved provider route. Nothing was applied, so
+  the previously verified empty staging configuration remains unchanged.
 - Secret-safe local inspection on 2026-07-20 found `.env.local` still targets the shared production Supabase URL and does not define the Phase 2 service-role, Stripe, cron, target, or provider variables. It must not be used for staging evidence; configure a separate staging environment without committing or printing secret values.
 - No Phase 2 migration has been applied to the linked shared production database. Production promotion still requires explicit approval after the external staging gate.
 - No student-facing AI feature invokes the gateway yet. Phase 3’s real requirement-analysis slice is the first intended low-risk feature.
@@ -83,10 +184,12 @@ The concurrency test makes two simultaneous identical reservations and proves on
 ## Release decision
 
 Keep Phase 2 disabled in production. Sandbox connection, real Aido
-products/prices, and the cancellation-only portal configuration are complete.
-The remaining Phase 2 exit gate is external and configuration-specific:
-configure a staging deployment, webhook, and server secrets; complete the
-provider quality gate and reviewed billing configuration; perform the first
+products/prices, the cancellation-only portal configuration, isolated staging
+deployment, and sandbox webhook/server-secret configuration are complete. The
+remaining Phase 2 exit gate is external and configuration-specific: complete
+the provider quality gate with a materially safer extraction approach,
+enable/review the currently disabled configuration,
+and apply it atomically; perform the first
 real provider response and invoice/export comparison; and pass the full
 Checkout/subscription/refund/dispute/cron evidence set. Then review the
 additive production migration set separately.
