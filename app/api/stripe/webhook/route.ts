@@ -192,7 +192,8 @@ async function processReversal(event: Stripe.Event, digest: string) {
 export async function POST(request: Request) {
   const signature = request.headers.get("stripe-signature");
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!signature || !webhookSecret) return new Response("Webhook is not configured.", { status: 503 });
+  if (!webhookSecret) return new Response("Webhook is not configured.", { status: 503 });
+  if (!signature) return new Response("Missing Stripe signature.", { status: 400 });
   const body = await request.text();
   let event: Stripe.Event;
   try {
