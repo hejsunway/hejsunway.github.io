@@ -113,7 +113,6 @@ async function processPaidInvoice(event: Stripe.Event, invoice: Stripe.Invoice, 
     invoice: invoice.id,
     status: "paid",
     limit: 10,
-    expand: ["data.payment.payment_intent.latest_charge.balance_transaction", "data.payment.charge.balance_transaction"],
   });
   const paid = invoicePayments.data.find((payment) => payment.status === "paid");
   if (!paid) throw new Error("Paid invoice has no settled Stripe payment.");
