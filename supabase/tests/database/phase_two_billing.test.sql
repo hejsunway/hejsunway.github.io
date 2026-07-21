@@ -3,7 +3,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET search_path = public, extensions;
 
-SELECT plan(80);
+SELECT plan(83);
 
 -- Structural and privilege boundary.
 SELECT has_table('public', 'aido_credit_wallets', 'credit wallets exist');
@@ -12,6 +12,14 @@ SELECT has_table('public', 'aido_credit_ledger', 'append-only credit ledger exis
 SELECT has_table('public', 'aido_usage_reservations', 'usage reservations exist');
 SELECT has_table('public', 'aido_payment_events', 'verified payment event journal exists');
 SELECT has_table('public', 'aido_provider_call_authorizations', 'provider-call authorizations exist');
+SELECT has_column(
+  'public', 'aido_provider_prices', 'cache_write_input_microusd_per_million_tokens',
+  'provider prices preserve cache-write pricing'
+);
+SELECT has_column(
+  'public', 'aido_usage_events', 'cache_write_input_tokens',
+  'usage events preserve cache-write token counts'
+);
 SELECT ok(
   (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.aido_credit_wallets'::regclass),
   'wallets have RLS enabled'
@@ -101,11 +109,12 @@ INSERT INTO public.aido_provider_prices (
   id, provider, model, version,
   input_microusd_per_million_tokens,
   cached_input_microusd_per_million_tokens,
+  cache_write_input_microusd_per_million_tokens,
   output_microusd_per_million_tokens,
   effective_from, source_reference
 ) VALUES (
   '21000000-0000-4000-8000-000000000001', 'openai', 'gpt-test', 1,
-  1000000, 100000, 2000000,
+  1000000, 100000, 1250000, 2000000,
   now() - interval '1 hour', 'phase-two-test-rate-source'
 );
 
@@ -287,7 +296,7 @@ SELECT lives_ok(
   $$SELECT public.aido_authorize_provider_call(
     (SELECT id FROM public.aido_usage_reservations WHERE job_key = 'phase2-job-success'),
     'phase2-provider-success', 1::smallint,
-    600, 500, 300, 0, 0, 0, now() + interval '10 minutes'
+    1000, 500, 300, 0, 0, 0, now() + interval '10 minutes'
   )$$,
   'provider call receives a bounded server authorization'
 );
@@ -295,7 +304,7 @@ SELECT throws_ok(
   $$SELECT public.aido_authorize_provider_call(
     (SELECT id FROM public.aido_usage_reservations WHERE job_key = 'phase2-job-success'),
     'phase2-provider-success', 1::smallint,
-    500, 500, 300, 0, 0, 0, now() + interval '10 minutes'
+    900, 500, 300, 0, 0, 0, now() + interval '10 minutes'
   )$$,
   '23505', NULL,
   'provider authorization key cannot be reused with changed ceilings'
@@ -304,7 +313,7 @@ SELECT throws_ok(
   $$SELECT public.aido_record_usage_event(
     (SELECT id FROM public.aido_provider_call_authorizations WHERE idempotency_key = 'phase2-provider-success'),
     'phase2-usage-success', 'req_phase2success', 'phase2-prompt-v1',
-    400, 0, 250, 0, 0, 0, 1200, 500,
+    400, 0, 100, 250, 0, 0, 0, 1200, 925,
     'succeeded', true, NULL
   )$$,
   '23514', NULL,
@@ -324,11 +333,21 @@ SELECT is(
   false,
   'a retry cannot dispatch the same authorized call twice'
 );
+SELECT throws_ok(
+  $$SELECT public.aido_record_usage_event(
+    (SELECT id FROM public.aido_provider_call_authorizations WHERE idempotency_key = 'phase2-provider-success'),
+    'phase2-usage-success', 'req_phase2success', 'phase2-prompt-v1',
+    400, 0, 100, 250, 0, 0, 0, 1200, 924,
+    'succeeded', true, NULL
+  )$$,
+  '22023', NULL,
+  'usage cost must match canonical cache-write pricing'
+);
 SELECT lives_ok(
   $$SELECT public.aido_record_usage_event(
     (SELECT id FROM public.aido_provider_call_authorizations WHERE idempotency_key = 'phase2-provider-success'),
     'phase2-usage-success', 'req_phase2success', 'phase2-prompt-v1',
-    400, 0, 250, 0, 0, 0, 1200, 500,
+    400, 0, 100, 250, 0, 0, 0, 1200, 925,
     'succeeded', true, NULL
   )$$,
   'successful provider usage is journaled from actual usage'
@@ -337,7 +356,7 @@ SELECT throws_ok(
   $$SELECT public.aido_record_usage_event(
     (SELECT id FROM public.aido_provider_call_authorizations WHERE idempotency_key = 'phase2-provider-success'),
     'phase2-usage-success', 'req_phase2success', 'phase2-prompt-v1',
-    400, 0, 251, 0, 0, 0, 1200, 500,
+    400, 0, 100, 251, 0, 0, 0, 1200, 925,
     'succeeded', true, NULL
   )$$,
   '23505', NULL,
@@ -439,7 +458,7 @@ SELECT lives_ok(
   $$SELECT public.aido_record_usage_event(
     (SELECT id FROM public.aido_provider_call_authorizations WHERE idempotency_key = 'phase2-provider-failure'),
     'phase2-usage-failure', 'req_phase2failure', 'phase2-prompt-v1',
-    100, 0, 50, 0, 0, 0, 900, 200,
+    100, 0, 0, 50, 0, 0, 0, 900, 200,
     'failed', false, 'provider_timeout'
   )$$,
   'failed provider usage records Aido cost without student billing'
@@ -468,7 +487,7 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*) FROM public.aido_provider_budget_usage
-   WHERE incurred_microusd = 700 AND reserved_microusd = 0),
+   WHERE incurred_microusd = 1125 AND reserved_microusd = 0),
   4::bigint,
   'all four provider budget scopes reconcile successful and failed cost'
 );

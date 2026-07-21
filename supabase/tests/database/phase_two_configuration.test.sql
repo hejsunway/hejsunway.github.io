@@ -3,7 +3,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET search_path = public, extensions;
 
-SELECT plan(18);
+SELECT plan(20);
 
 SELECT has_table(
   'public',
@@ -58,6 +58,7 @@ VALUES (jsonb_build_object(
     'version', 1,
     'input_microusd_per_million_tokens', 1000000,
     'cached_input_microusd_per_million_tokens', 100000,
+    'cache_write_input_microusd_per_million_tokens', 1250000,
     'output_microusd_per_million_tokens', 2000000,
     'tool_call_microusd', 0,
     'search_call_microusd', 0,
@@ -140,6 +141,16 @@ SET LOCAL ROLE service_role;
 
 SELECT throws_ok(
   $$SELECT public.aido_apply_billing_configuration(
+    (SELECT payload FROM phase2_configuration_fixture)
+      #- '{provider_prices,0,cache_write_input_microusd_per_million_tokens}',
+    repeat('d', 64),
+    NULL
+  )$$,
+  '22023', NULL,
+  'a provider price without explicit cache-write pricing is rejected'
+);
+SELECT throws_ok(
+  $$SELECT public.aido_apply_billing_configuration(
     jsonb_set(
       (SELECT payload FROM phase2_configuration_fixture),
       '{feature_rate_cards,0,max_provider_cost_microusd}',
@@ -165,6 +176,11 @@ SELECT lives_ok(
 SELECT is((SELECT count(*) FROM public.aido_billing_configuration_imports), 1::bigint, 'one import is journaled');
 SELECT is((SELECT count(*) FROM public.aido_billing_config_versions), 1::bigint, 'one billing version is applied');
 SELECT is((SELECT count(*) FROM public.aido_provider_prices), 1::bigint, 'one provider price is applied');
+SELECT is(
+  (SELECT cache_write_input_microusd_per_million_tokens FROM public.aido_provider_prices),
+  1250000::bigint,
+  'the reviewed cache-write price is imported atomically'
+);
 SELECT is((SELECT count(*) FROM public.aido_feature_rate_cards), 1::bigint, 'one feature rate is applied');
 SELECT is((SELECT count(*) FROM public.aido_provider_routes), 1::bigint, 'one approved route is applied');
 SELECT is((SELECT count(*) FROM public.aido_credit_products), 1::bigint, 'one credit product is applied');

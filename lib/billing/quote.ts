@@ -53,14 +53,39 @@ export function calculateCreditsFromRate(rate: RateRow, estimate: TrustedWorkEst
 
 export function calculateProviderCostMicrousd(
   price: PriceRow,
-  usage: TrustedWorkEstimate & { cachedInputTokens?: number },
+  usage: TrustedWorkEstimate & {
+    cachedInputTokens?: number;
+    cacheWriteInputTokens?: number;
+  },
 ): bigint {
   const cached = units(usage.cachedInputTokens ?? 0);
+  const cacheWrite = units(usage.cacheWriteInputTokens ?? 0);
   const input = units(usage.inputTokens);
-  if (cached > input) throw new Error("Cached input cannot exceed total input.");
+  if (cached + cacheWrite > input) {
+    throw new Error("Cache-read and cache-write input cannot exceed total input.");
+  }
   return (
-    ceilDiv((input - cached) * asSafeBigInt(price.input_microusd_per_million_tokens, "input price"), BigInt(1_000_000)) +
+    ceilDiv((input - cached - cacheWrite) * asSafeBigInt(price.input_microusd_per_million_tokens, "input price"), BigInt(1_000_000)) +
     ceilDiv(cached * asSafeBigInt(price.cached_input_microusd_per_million_tokens, "cached input price"), BigInt(1_000_000)) +
+    ceilDiv(cacheWrite * asSafeBigInt(price.cache_write_input_microusd_per_million_tokens, "cache-write input price"), BigInt(1_000_000)) +
+    ceilDiv(units(usage.outputTokens) * asSafeBigInt(price.output_microusd_per_million_tokens, "output price"), BigInt(1_000_000)) +
+    units(usage.toolCalls) * asSafeBigInt(price.tool_call_microusd, "tool price") +
+    units(usage.searches) * asSafeBigInt(price.search_call_microusd, "search price")
+  );
+}
+
+export function calculateMaximumProviderCostMicrousd(
+  price: PriceRow,
+  usage: TrustedWorkEstimate,
+): bigint {
+  const maximumInputPrice = [
+    price.input_microusd_per_million_tokens,
+    price.cached_input_microusd_per_million_tokens,
+    price.cache_write_input_microusd_per_million_tokens,
+  ].map((value) => asSafeBigInt(value, "input price"))
+    .reduce((maximum, value) => value > maximum ? value : maximum);
+  return (
+    ceilDiv(units(usage.inputTokens) * maximumInputPrice, BigInt(1_000_000)) +
     ceilDiv(units(usage.outputTokens) * asSafeBigInt(price.output_microusd_per_million_tokens, "output price"), BigInt(1_000_000)) +
     units(usage.toolCalls) * asSafeBigInt(price.tool_call_microusd, "tool price") +
     units(usage.searches) * asSafeBigInt(price.search_call_microusd, "search price")
@@ -123,7 +148,7 @@ export async function quoteMeteredWork(
   const safetyBps = asSafeBigInt(config.quote_safety_multiplier_bps, "quote safety multiplier");
   const maximum = [ceilDiv(quoted * safetyBps, BigInt(10_000)), maximumRateCredits]
     .reduce((left, right) => left < right ? left : right);
-  const estimatedCost = calculateProviderCostMicrousd(price, estimate);
+  const estimatedCost = calculateMaximumProviderCostMicrousd(price, estimate);
   const providerBudget = ceilDiv(estimatedCost * safetyBps, BigInt(10_000));
   const rateCostCeiling = asSafeBigInt(rate.max_provider_cost_microusd, "provider cost ceiling");
   if (providerBudget > rateCostCeiling) throw new Error("Estimated provider cost exceeds the approved rate card.");

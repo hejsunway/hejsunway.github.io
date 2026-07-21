@@ -1,6 +1,6 @@
 # Phase 2 staging configuration gate
 
-> Date: 2026-07-20
+> Date: 2026-07-22
 > Rule: no placeholder products, prices, credit grants, model rates, or API calls
 
 ## Current state
@@ -10,6 +10,18 @@ draft exists outside the repository, but it has not been applied. All paid paths
 still fail closed because the tables contain no effective billing
 configuration, credit products, provider prices, approved routes, or enabled
 system controls.
+
+The cache-write accounting migration is now live on isolated staging. A
+read-only PostgREST probe confirms both new columns and the replacement usage
+RPC signature; the provider-price and usage tables still contain zero rows.
+The staging migration ledger was normalized only after all 13 alternate-
+timestamp remote statements matched the canonical repository files byte for
+byte. The connected Supabase plugin independently confirms the exact staging
+project is healthy and all 14 canonical migrations are present. Hosted
+advisors report one warning: leaked-password protection is disabled. The
+signed-in staging dashboard confirms that this control is Pro-only while this
+isolated project is on Free; no plan or billing change was made. No shared-
+production schema or data was changed.
 
 Stripe is connected to the isolated `AidoForMe` sandbox account
 `acct_1Tv6yz1tdTVob40G`. The two approved products/prices and the restricted
@@ -66,11 +78,16 @@ no payment lifecycle test has been run yet.
    each receipt. The independently detected truncated rubric block produces no
    clause, cannot anchor semantic output, and may appear only in one fixed
    neutral ambiguity. Regression tests and an isolated-staging dry run pass
-   without a provider request. The v13 checklist still needs versioned human
-   review, and a paid v13 evaluation requires separate explicit approval.
-   GPT-5.6 cache writes also require distinct cost
-   accounting before approval. The reviewed draft therefore keeps both routes
-   and all controls disabled. Evidence is
+   without a provider request. A private version-bound 17-item v13 checklist
+   exists outside Git with mode `0600` and SHA-256
+   `3ee2e0dc9d71b53cc3c190aed861cfc7ca090ac10bb151a637715c105d4d1324`.
+   Its exact-scope `provider_request_approval` remains `false`; a paid v13
+   evaluation still requires review and separate explicit approval.
+   Distinct cache-write pricing and usage accounting is now implemented and
+   deployed to isolated staging. The reviewed draft still keeps both routes
+   and all controls disabled because the v13 provider quality gate has not
+   passed and its worst-case route ceiling must be reviewed against the
+   cache-write price. Evidence is
    recorded
    in [`phase-two-provider-decision-evidence.md`](./phase-two-provider-decision-evidence.md).
 4. ~~Connect Stripe sandbox mode and create Aido-only test products/prices.~~
@@ -162,8 +179,9 @@ requires the declared environment, project ref, public Supabase URL, and
   exposure without making the wallet negative.
 - An insufficient balance blocks the provider call before network access.
 - Concurrent reservations cannot overspend one wallet.
-- One real provider response records tokens, cached input, output, tools/search,
-  latency, request ID, and actual provider cost.
+- One real provider response records ordinary input, cache-read input,
+  cache-write input, output, tools/search, latency, request ID, and the
+  database-recomputed actual provider cost.
 - One real provider invoice/export is imported by hash and reconciles to recorded
   usage, or produces a durable critical issue.
 - The scheduled reconciliation route creates a completed run and the browser

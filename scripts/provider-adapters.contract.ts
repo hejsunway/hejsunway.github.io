@@ -43,7 +43,7 @@ async function main() {
     }],
     usage: {
       input_tokens: 120,
-      input_tokens_details: { cached_tokens: 20 },
+      input_tokens_details: { cached_tokens: 20, cache_write_tokens: 30 },
       output_tokens: 45,
     },
   });
@@ -60,6 +60,7 @@ async function main() {
   assert.deepEqual(openAI.usage, {
     inputTokens: 120,
     cachedInputTokens: 20,
+    cacheWriteInputTokens: 30,
     outputTokens: 45,
     toolCalls: 0,
     searches: 0,
@@ -86,7 +87,10 @@ async function main() {
     endpoint: "https://api.deepseek.com/chat/completions",
     apiKey: "test-key",
     maxTokenField: "max_tokens",
-    cachedTokens: (usage) => Number(usage.prompt_cache_hit_tokens ?? 0),
+    inputTokenDetails: (usage) => ({
+      cachedInputTokens: Number(usage.prompt_cache_hit_tokens ?? 0),
+      cacheWriteInputTokens: 0,
+    }),
   }).execute({
     ...baseRequest,
     tools: [{
@@ -107,6 +111,7 @@ async function main() {
   assert.deepEqual(deepSeek.usage, {
     inputTokens: 210,
     cachedInputTokens: 80,
+    cacheWriteInputTokens: 0,
     outputTokens: 55,
     toolCalls: 1,
     searches: 0,
@@ -118,7 +123,7 @@ async function main() {
     choices: [{ finish_reason: "stop", message: { content: "MiniMax result" } }],
     usage: {
       prompt_tokens: 95,
-      prompt_tokens_details: { cached_tokens: 15 },
+      prompt_tokens_details: { cached_tokens: 15, cache_write_tokens: 10 },
       completion_tokens: 30,
     },
   });
@@ -127,9 +132,12 @@ async function main() {
     endpoint: "https://api.minimax.io/v1/chat/completions",
     apiKey: "test-key",
     maxTokenField: "max_completion_tokens",
-    cachedTokens: (usage) => {
+    inputTokenDetails: (usage) => {
       const details = usage.prompt_tokens_details as Record<string, unknown> | undefined;
-      return Number(details?.cached_tokens ?? 0);
+      return {
+        cachedInputTokens: Number(details?.cached_tokens ?? 0),
+        cacheWriteInputTokens: Number(details?.cache_write_tokens ?? 0),
+      };
     },
   }).execute(baseRequest);
   const miniMaxBody = JSON.parse(String(miniMaxCapture().init.body));
@@ -137,6 +145,7 @@ async function main() {
   assert.ok(!("tools" in miniMaxBody), "empty chat-completion tools should be omitted");
   assert.equal(miniMax.text, "MiniMax result");
   assert.equal(miniMax.usage.cachedInputTokens, 15);
+  assert.equal(miniMax.usage.cacheWriteInputTokens, 10);
 
   const incompleteCapture = await captureFetch({
     id: "resp_contract_incomplete",

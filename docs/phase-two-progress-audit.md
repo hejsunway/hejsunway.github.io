@@ -1,6 +1,6 @@
 # Phase 2 Progress Audit
 
-> Date: 2026-07-20
+> Date: 2026-07-22
 > Scope: prepaid credits, Stripe payments, provider gateway, and loss controls
 > Release status: schema and privilege mechanisms verified on isolated staging; paid external flows remain disabled
 
@@ -12,6 +12,11 @@
 - Exactly-once validation rejects reuse of a job, usage, provider, settlement, release, or Stripe event key when any material facts change.
 - Global, feature, provider, and model daily budgets and concurrent-call controls. Missing controls, rates, routes, wallets, or secrets fail closed.
 - Server-only integer quote calculation with a configured FX buffer and provider-cost margin floor.
+- Distinct immutable pricing and append-only usage fields for prompt-cache
+  reads and writes. Quotes and authorizations reserve against the most
+  expensive input-token class, while the database independently recomputes
+  actual provider cost from the reservation's price snapshot and rejects a
+  mismatched submitted cost.
 - One server-only gateway with fixed-endpoint adapters for OpenAI Responses, DeepSeek Chat Completions, and MiniMax Chat Completions. The immutable reservation selects the provider/model; feature and browser code cannot override it.
 - A one-way provider-dispatch claim prevents a crashed retry from issuing the same paid request twice. Expired dispatched calls without usage become durable critical reconciliation issues.
 - Ambiguous dispatched calls remain reconciliation issues even after student credits are released, so a late provider invoice cannot silently erase the exposure.
@@ -38,7 +43,7 @@
 | Real balance, history, subscription, and top-up interfaces | Real wallet/history, Checkout, lifecycle projection, and configured portal action | Code complete; external Stripe test-mode evidence missing |
 | Plan/user/concurrency/provider controls and kill switches | Rate cards, system controls, provider budget authorization | Complete locally |
 | Server-only gateway with hard ceilings | OpenAI, DeepSeek, and MiniMax adapters; database authorization plus single-dispatch claim | Complete locally; latest retry passed automatic anchoring but failed human semantic quality review |
-| Provider-reported usage and actual-cost capture | Token/cache/tool/search/latency/request/cost fields, settlement, and provider-invoice comparison | Code complete; first real provider export/invoice evidence missing |
+| Provider-reported usage and actual-cost capture | Separate ordinary/cache-read/cache-write token fields, tool/search/latency/request fields, database-recomputed cost, settlement, and provider-invoice comparison | Code and staging schema complete; first real gateway event and provider export/invoice evidence missing |
 | Approved lower-cost routing | Versioned approved route table and fail-closed lookup | Mechanism complete; reviewed staging draft remains disabled because quality gate failed |
 | Automated financial and provider-invoice reconciliation | Durable daily runner, Stripe comparison, immutable hashed invoice import, internal mismatch functions, and completed manual staging run `9d55511f-f8cc-4387-912e-c3d415611366` | Routes and persistence verified on staging; scheduler-originated run, first real invoice, and Stripe lifecycle still missing |
 
@@ -47,12 +52,18 @@
 ```text
 supabase db reset --local --no-seed        pass
 supabase db lint --local --level warning   no schema errors
-supabase test db --local                   197/197 pass
+supabase migration up --local              cache-write migration pass
+supabase test db --local                   202/202 pass
 pnpm test:phase2                           concurrent duplicate/overspend pass
 pnpm test:billing-config                   environment/project boundary pass
 pnpm test:providers                        OpenAI/DeepSeek/MiniMax contracts pass
 pnpm phase2:verify-cron-staging            deployed 401/200 and persisted-run checks pass
 supabase db advisors --local --fail-on warn no issues
+supabase db push --linked --dry-run         exactly one staging migration
+supabase db push --linked                   cache-write migration applied
+supabase db query --linked audit SQL        8/8 grouped staging checks pass
+supabase db lint --linked --level warning   no schema errors
+staging PostgREST schema/RPC probe          both columns and new RPC signature pass
 pnpm check:no-demo                         pass
 pnpm lint                                  pass
 pnpm typecheck                             pass
@@ -63,7 +74,25 @@ The concurrency test makes two simultaneous identical reservations and proves on
 
 ## Not complete / not authorized for release
 
-- The isolated `AidoForMe Staging` Supabase project (`vokjkogzvtohdinhxhkk`, Singapore, $0/month) contains all Phase 1 and Phase 2 migrations through `aido_phase_two_scheduled_expiry` (nine Phase 2 migrations). All eight grouped schema/RLS/grant/index checks pass. Security and performance advisors report no warning/error findings; remaining informational notices are expected for deny-by-default service tables and unused indexes in an empty database.
+- The isolated `AidoForMe Staging` Supabase project
+  (`vokjkogzvtohdinhxhkk`, Singapore, $0/month) now contains all canonical
+  Phase 1 migrations and all ten Phase 2 migrations through
+  `aido_phase_two_cache_write_accounting`. Before the new migration was
+  applied, the 13 existing remote ledger entries were compared with the
+  corresponding repository SQL and every statement body matched byte for
+  byte; their alternate timestamps were then normalized to the canonical
+  versions. A final dry run listed only the cache-write migration. Read-only
+  staging probes confirm the cache-write price column, usage column, and new
+  service RPC signature are live. Both affected tables still contain zero
+  rows, so this is schema evidence rather than provider-call evidence. Local
+  database advisors report no issues. The connected Supabase plugin
+  independently confirms that the exact staging project is healthy, all 14
+  canonical migrations are present, and the only warning-level hosted finding
+  is disabled leaked-password protection. The signed-in staging dashboard
+  confirms that this control is available only on Supabase Pro while the
+  isolated project is on Free. No plan or billing change was made. The final
+  advisor gate therefore requires an approved staging-plan upgrade or an
+  explicit documented acceptance of this platform limitation.
 - Stripe is now authenticated to the isolated `AidoForMe` sandbox account
   `acct_1Tv6yz1tdTVob40G`. The approved RM20/2,000-credit top-up and
   RM29/2,900-credit monthly prices are verified with `livemode: false`, and the
@@ -144,15 +173,20 @@ The concurrency test makes two simultaneous identical reservations and proves on
   truncated OCR block, emits no atomic clause from it, prohibits that block
   from all semantic extraction, and permits only one fixed neutral ambiguity.
   Regression tests reject merged or omitted clauses and any guessed completion.
-  The v13 isolated-staging dry run passes with no provider request; v13 is not
-  yet provider quality evidence and its checklist still needs versioned review.
+  The v13 isolated-staging dry run passes with no provider request. A private
+  version-bound 17-item checklist now exists outside Git with mode `0600` and
+  SHA-256
+  `3ee2e0dc9d71b53cc3c190aed861cfc7ca090ac10bb151a637715c105d4d1324`,
+  but its exact-scope `provider_request_approval` remains `false`. V13 is not
+  provider quality evidence until that checklist is reviewed and the one paid
+  request is explicitly approved.
   The evaluator now also requires an explicit private
   `provider_request_approval` block bound to the exact staging project, model,
   prompt, schema, anchoring version, and document hashes before any paid
   provider request can run.
-  Because the quality gate failed and
-  the billing schema cannot yet price cache-write tokens separately, both
-  routes and all controls remain disabled and unapplied.
+  The cache-write accounting defect is now closed in code and on isolated
+  staging. Because the provider quality gate still failed, both routes and all
+  controls remain disabled and unapplied.
 - The Stripe Sandbox catalog now matches the reviewed configuration exactly for
   both product keys, amounts, billing modes, grants, and expiry. A guarded
   metadata repair updated only the four mismatched sandbox product-key fields;
@@ -182,7 +216,11 @@ The concurrency test makes two simultaneous identical reservations and proves on
   blocks because there is no approved provider route. Nothing was applied, so
   the previously verified empty staging configuration remains unchanged.
 - Secret-safe local inspection on 2026-07-20 found `.env.local` still targets the shared production Supabase URL and does not define the Phase 2 service-role, Stripe, cron, target, or provider variables. It must not be used for staging evidence; configure a separate staging environment without committing or printing secret values.
-- No Phase 2 migration has been applied to the linked shared production database. Production promotion still requires explicit approval after the external staging gate.
+- No Phase 2 migration was applied to the shared production database. The
+  local CLI was found linked to shared production, was relinked to the exact
+  isolated staging ref before any push, and every remote operation was guarded
+  by that staging ref. Production promotion still requires explicit approval
+  after the external staging gate.
 - No student-facing AI feature invokes the gateway yet. Phase 3’s real requirement-analysis slice is the first intended low-risk feature.
 
 ## Release decision

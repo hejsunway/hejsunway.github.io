@@ -17,7 +17,10 @@ type ChatAdapterOptions = {
   endpoint: string;
   apiKey: string;
   maxTokenField: "max_tokens" | "max_completion_tokens";
-  cachedTokens(usage: JsonObject): number;
+  inputTokenDetails(usage: JsonObject): {
+    cachedInputTokens: number;
+    cacheWriteInputTokens: number;
+  };
 };
 
 function chatTool(tool: ProviderFunctionTool): JsonObject {
@@ -78,6 +81,7 @@ export function createOpenAICompatibleChatAdapter(options: ChatAdapterOptions): 
       const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls.length : 0;
       const finishReason = nullableString(choice.finish_reason);
       const completed = response.ok && (finishReason === "stop" || finishReason === "tool_calls");
+      const inputTokenDetails = options.inputTokenDetails(usage);
       return {
         responseId: nullableString(payload.id),
         model: nullableString(payload.model) ?? request.model,
@@ -85,7 +89,8 @@ export function createOpenAICompatibleChatAdapter(options: ChatAdapterOptions): 
         raw: payload,
         usage: {
           inputTokens: nonnegativeInteger(usage.prompt_tokens),
-          cachedInputTokens: options.cachedTokens(usage),
+          cachedInputTokens: nonnegativeInteger(inputTokenDetails.cachedInputTokens),
+          cacheWriteInputTokens: nonnegativeInteger(inputTokenDetails.cacheWriteInputTokens),
           outputTokens: nonnegativeInteger(usage.completion_tokens),
           toolCalls,
           searches: 0,

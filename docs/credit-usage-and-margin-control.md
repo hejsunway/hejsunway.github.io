@@ -52,9 +52,9 @@ If the next step may exceed the job's maximum credits or provider-cost ceiling, 
 | `aido_credit_wallets` | Cached available and reserved balance | One row per user; non-negative checks |
 | `aido_credit_ledger` | Permanent source of financial truth | Append-only; unique idempotency key |
 | `aido_usage_reservations` | Quote and maximum exposure for one job | Unique job key; explicit lifecycle |
-| `aido_usage_events` | Actual model, token, search, page, latency, and provider cost | Unique provider request ID where available |
+| `aido_usage_events` | Actual model, ordinary/cache-read/cache-write token, search, page, latency, and provider cost | Unique provider request ID where available; cache subsets cannot exceed total input |
 | `aido_feature_rate_cards` | Versioned retail rules and job limits | Effective dates; immutable historical versions |
-| `aido_provider_prices` | Versioned input/output/cache/tool unit costs | Currency and effective dates |
+| `aido_provider_prices` | Versioned ordinary input, cache-read, cache-write, output, and tool unit costs | Currency and effective dates; immutable historical versions |
 | `aido_payment_events` | Verified Stripe event processing | Unique Stripe event ID |
 | `aido_plan_grants` | Subscription/semester/top-up credit lots | Source, granted amount, remaining amount, expiry |
 
@@ -165,6 +165,13 @@ At 80% of the provider-cost ceiling, the worker should prefer cached data or an 
 
 Provider-reported usage is recorded separately from credits charged. This allows finance and product teams to compare retail revenue, net revenue, provider COGS, failed-job loss, and gross margin by feature, plan, model, and customer cohort.
 
+Prompt-cache reads and writes are separate usage classes. Before dispatch, the
+gateway reserves against the highest configured input-token price because the
+exact cache outcome is not yet known. After the response, it records each
+class separately, and the database recomputes the expected micro-dollar cost
+from the immutable provider-price snapshot. A caller-supplied cost that does
+not match that calculation is rejected.
+
 ## Payment and credit-grant pipeline
 
 Credits are granted only after a verified payment-provider webhook:
@@ -238,4 +245,3 @@ Admin reporting should show aggregates and operational metadata without routine 
 - RLS prevents anonymous and unrelated authenticated users from accessing wallet, ledger, reservation, payment, or usage rows.
 - Service-role and provider secrets never reach client bundles or logs.
 - Finance can reconcile wallet, ledger, payments, jobs, and provider costs.
-

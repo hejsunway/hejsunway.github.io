@@ -4,6 +4,7 @@ import { createBillingAdminClient } from "@/lib/billing/admin";
 import { asSafeBigInt, toSafeNumber } from "@/lib/billing/integer-math";
 import {
   calculateCreditsFromRate,
+  calculateMaximumProviderCostMicrousd,
   calculateProviderCostMicrousd,
   type TrustedWorkEstimate,
 } from "@/lib/billing/quote";
@@ -63,7 +64,10 @@ export async function runMeteredProviderResponse<T>(input: {
 }): Promise<{
   artifact: T;
   responseId: string | null;
-  usage: TrustedWorkEstimate & { cachedInputTokens: number };
+  usage: TrustedWorkEstimate & {
+    cachedInputTokens: number;
+    cacheWriteInputTokens: number;
+  };
 }> {
   const admin = createBillingAdminClient();
   const { data: reservation, error: reservationError } = await admin
@@ -77,7 +81,7 @@ export async function runMeteredProviderResponse<T>(input: {
   const route = reservation.aido_provider_routes as JsonObject;
   const price = route?.aido_provider_prices as JsonObject;
   if (!rate || !route || !price) throw new Error("Reservation pricing snapshot is incomplete.");
-  const trustedEstimatedCost = calculateProviderCostMicrousd(price, input.estimated);
+  const trustedEstimatedCost = calculateMaximumProviderCostMicrousd(price, input.estimated);
 
   let adapter;
   try {
@@ -159,6 +163,7 @@ export async function runMeteredProviderResponse<T>(input: {
   const actual = {
     inputTokens: result.usage.inputTokens,
     cachedInputTokens: result.usage.cachedInputTokens,
+    cacheWriteInputTokens: result.usage.cacheWriteInputTokens,
     outputTokens: result.usage.outputTokens,
     pages: input.estimated.pages,
     sources: input.estimated.sources,
@@ -198,6 +203,7 @@ export async function runMeteredProviderResponse<T>(input: {
     p_prompt_version: input.promptVersion,
     p_input_tokens: actual.inputTokens,
     p_cached_input_tokens: actual.cachedInputTokens,
+    p_cache_write_input_tokens: actual.cacheWriteInputTokens,
     p_output_tokens: actual.outputTokens,
     p_tool_calls: actual.toolCalls,
     p_search_calls: actual.searches,

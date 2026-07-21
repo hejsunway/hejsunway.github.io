@@ -36,6 +36,7 @@ const configuration = {
     version: 1,
     input_microusd_per_million_tokens: 1_000_000,
     cached_input_microusd_per_million_tokens: 500_000,
+    cache_write_input_microusd_per_million_tokens: 1_250_000,
     output_microusd_per_million_tokens: 2_000_000,
     tool_call_microusd: 0,
     search_call_microusd: 0,

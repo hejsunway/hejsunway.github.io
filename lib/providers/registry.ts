@@ -14,13 +14,19 @@ function requiredSecret(name: "OPENAI_API_KEY" | "DEEPSEEK_API_KEY" | "MINIMAX_A
   return value;
 }
 
-function cachedFromDetails(usage: JsonObject): number {
+function cacheDetails(usage: JsonObject): {
+  cachedInputTokens: number;
+  cacheWriteInputTokens: number;
+} {
   const details = usage.prompt_tokens_details
     && typeof usage.prompt_tokens_details === "object"
     && !Array.isArray(usage.prompt_tokens_details)
     ? usage.prompt_tokens_details as JsonObject
     : {};
-  return nonnegativeInteger(details.cached_tokens);
+  return {
+    cachedInputTokens: nonnegativeInteger(details.cached_tokens),
+    cacheWriteInputTokens: nonnegativeInteger(details.cache_write_tokens),
+  };
 }
 
 export function isProviderId(value: string): value is ProviderId {
@@ -40,7 +46,10 @@ export function resolveProviderAdapter(provider: string): ProviderAdapter {
         endpoint: DEEPSEEK_CHAT_ENDPOINT,
         apiKey: requiredSecret("DEEPSEEK_API_KEY"),
         maxTokenField: "max_tokens",
-        cachedTokens: (usage) => nonnegativeInteger(usage.prompt_cache_hit_tokens),
+        inputTokenDetails: (usage) => ({
+          cachedInputTokens: nonnegativeInteger(usage.prompt_cache_hit_tokens),
+          cacheWriteInputTokens: 0,
+        }),
       });
     case "minimax":
       return createOpenAICompatibleChatAdapter({
@@ -48,7 +57,7 @@ export function resolveProviderAdapter(provider: string): ProviderAdapter {
         endpoint: MINIMAX_CHAT_ENDPOINT,
         apiKey: requiredSecret("MINIMAX_API_KEY"),
         maxTokenField: "max_completion_tokens",
-        cachedTokens: cachedFromDetails,
+        inputTokenDetails: cacheDetails,
       });
   }
 }

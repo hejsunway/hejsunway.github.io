@@ -553,10 +553,13 @@ anchors, 27 required source blocks, five complete atomic clauses, and one
 locally incomplete block. It made no provider request.
 
 The v13 private anchor registry is stored outside the repository with mode
-`0600`. Because the prompt and schema versions changed, the human checklist
-must be reviewed and version-bound to v13 before any paid evaluation. V13 is
-offline contract evidence only; it is not provider quality approval and does
-not authorize an automatic retry or fallback.
+`0600`. A separate private 17-item checklist is version-bound to the exact v13
+project, model, prompt, schema, anchoring version, and document hashes; it also
+has mode `0600` and SHA-256
+`3ee2e0dc9d71b53cc3c190aed861cfc7ca090ac10bb151a637715c105d4d1324`.
+Its exact-scope `provider_request_approval` remains `false`. V13 is offline
+contract evidence only; it is not provider quality approval and does not
+authorize an automatic retry or fallback.
 
 The evaluator now fails closed unless the private checklist also contains an
 explicit `provider_request_approval` section for the exact staging project,
@@ -566,8 +569,12 @@ provider request; the reviewer must mark that exact scope approved first.
 
 At Luna's ordinary hard-limit prices, 40,000 input plus 4,000 output tokens
 costs USD 0.064, just under the current USD 0.0648 route ceiling. GPT-5.6 cache
-writes can raise that exposure to USD 0.074. The Phase 2 billing schema does
-not yet have a distinct cache-write price/token field, so the Luna route must
-remain unapproved until this accounting gap is closed or cache writes are
-provably excluded. The configuration and all model controls remain disabled
-and unapplied.
+writes can raise that exposure to USD 0.074. Distinct cache-write price and
+usage fields are now implemented, locally verified, and deployed to isolated
+staging; the quote/gateway reserves against the most expensive input class and
+the database recomputes actual cost. This closes the accounting defect but does
+not make the current Luna route approvable: its reviewed hard limits still
+exceed the existing route ceiling under cache-write pricing. The provider
+quality gate must pass and the route ceiling, limits, and margin must be
+reviewed together before configuration is applied. All model controls remain
+disabled and unapplied.

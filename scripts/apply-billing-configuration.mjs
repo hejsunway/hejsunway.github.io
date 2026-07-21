@@ -130,7 +130,8 @@ instant(config.effective_to, "billing_config.effective_to", true);
 const prices = array(configuration.provider_prices, "configuration.provider_prices");
 const priceFields = [
   "id", "provider", "model", "version", "input_microusd_per_million_tokens",
-  "cached_input_microusd_per_million_tokens", "output_microusd_per_million_tokens",
+  "cached_input_microusd_per_million_tokens", "cache_write_input_microusd_per_million_tokens",
+  "output_microusd_per_million_tokens",
   "tool_call_microusd", "search_call_microusd", "effective_from", "effective_to",
   "source_reference",
 ];
@@ -148,6 +149,7 @@ for (const [index, price] of prices.entries()) {
   if (
     price.input_microusd_per_million_tokens
     + price.cached_input_microusd_per_million_tokens
+    + price.cache_write_input_microusd_per_million_tokens
     + price.output_microusd_per_million_tokens
     + price.tool_call_microusd
     + price.search_call_microusd === 0
@@ -231,6 +233,7 @@ for (const [index, route] of routes.entries()) {
       ceilDiv(BigInt(rate.max_input_tokens) * BigInt(Math.max(
         price.input_microusd_per_million_tokens,
         price.cached_input_microusd_per_million_tokens,
+        price.cache_write_input_microusd_per_million_tokens,
       )), 1_000_000n)
       + ceilDiv(BigInt(rate.max_output_tokens) * BigInt(price.output_microusd_per_million_tokens), 1_000_000n)
       + BigInt(rate.max_tool_calls) * BigInt(price.tool_call_microusd)

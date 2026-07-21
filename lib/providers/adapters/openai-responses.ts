@@ -94,6 +94,7 @@ export function createOpenAIResponsesAdapter(apiKey: string): ProviderAdapter {
         usage: {
           inputTokens: nonnegativeInteger(usage.input_tokens),
           cachedInputTokens: nonnegativeInteger(inputDetails.cached_tokens),
+          cacheWriteInputTokens: nonnegativeInteger(inputDetails.cache_write_tokens),
           outputTokens: nonnegativeInteger(usage.output_tokens),
           toolCalls: counts.toolCalls,
           searches: counts.searches,

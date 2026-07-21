@@ -13,7 +13,8 @@ expected_migrations(migration_name) AS (
     ('aido_phase_two_provider_dispatch_hardening'),
     ('aido_phase_two_configuration_import'),
     ('aido_phase_two_dispatch_reconciliation_durability'),
-    ('aido_phase_two_scheduled_expiry')
+    ('aido_phase_two_scheduled_expiry'),
+    ('aido_phase_two_cache_write_accounting')
 ),
 expected_tables(table_name) AS (
   VALUES
@@ -60,7 +61,7 @@ service_functions(signature) AS (
     ('public.aido_authorize_provider_call(uuid,text,smallint,bigint,bigint,bigint,integer,integer,integer,timestamp with time zone)'),
     ('public.aido_mark_provider_call_dispatched(uuid)'),
     ('public.aido_expire_due_financial_state(integer)'),
-    ('public.aido_record_usage_event(uuid,text,text,text,bigint,bigint,bigint,integer,integer,integer,integer,bigint,public.aido_usage_outcome,boolean,text)'),
+    ('public.aido_record_usage_event(uuid,text,text,text,bigint,bigint,bigint,bigint,integer,integer,integer,integer,bigint,public.aido_usage_outcome,boolean,text)'),
     ('public.aido_settle_reservation(uuid,bigint,text)'),
     ('public.aido_release_reservation(uuid,public.aido_usage_reservation_status,text,text)'),
     ('public.aido_process_verified_purchase_event(text,text,public.aido_payment_event_kind,boolean,text,text,text,text,bigint,bigint,text)'),
@@ -80,7 +81,7 @@ expected_indexes(index_name) AS (
     ('idx_aido_billing_configuration_imports_applied_by')
 ),
 checks(check_order, check_name, expected, actual, pass) AS (
-  SELECT 10, 'Phase 2 migration history', 'all nine canonical migrations recorded',
+  SELECT 10, 'Phase 2 migration history', 'all ten canonical migrations recorded',
     coalesce((SELECT jsonb_agg(migration_name ORDER BY migration_name)::text
       FROM expected_migrations expected
       WHERE NOT EXISTS (

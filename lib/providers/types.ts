@@ -28,6 +28,7 @@ export type ProviderRequest = {
 export type ProviderUsage = {
   inputTokens: number;
   cachedInputTokens: number;
+  cacheWriteInputTokens: number;
   outputTokens: number;
   toolCalls: number;
   searches: number;

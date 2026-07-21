@@ -86,6 +86,7 @@
         "id", "provider", "model", "version",
         "input_microusd_per_million_tokens",
         "cached_input_microusd_per_million_tokens",
+        "cache_write_input_microusd_per_million_tokens",
         "output_microusd_per_million_tokens", "tool_call_microusd",
         "search_call_microusd", "effective_from", "effective_to",
         "source_reference"
@@ -97,6 +98,7 @@
         "version": { "$ref": "#/$defs/positiveInteger" },
         "input_microusd_per_million_tokens": { "$ref": "#/$defs/nonnegativeInteger" },
         "cached_input_microusd_per_million_tokens": { "$ref": "#/$defs/nonnegativeInteger" },
+        "cache_write_input_microusd_per_million_tokens": { "$ref": "#/$defs/nonnegativeInteger" },
         "output_microusd_per_million_tokens": { "$ref": "#/$defs/nonnegativeInteger" },
         "tool_call_microusd": { "$ref": "#/$defs/nonnegativeInteger" },
         "search_call_microusd": { "$ref": "#/$defs/nonnegativeInteger" },
